@@ -94,7 +94,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         if (!existingClaim) {
             return NextResponse.json(
-                { success: false, error: 'ไม่พบเคลม' },
+                { success: false, error: 'ไม่พบใบงาน' },
                 { status: 404 }
             );
         }
@@ -116,6 +116,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             CustomerName,
             CarModel,
             CarRegister,
+            VinNo,
+            ProjectType,
+            InventoryItemID,
             ClaimDetail,
             Amount,
             IsCheckMileage,
@@ -133,6 +136,9 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 CustomerName,
                 CarModel,
                 CarRegister,
+                VinNo: VinNo || null,
+                ProjectType: ProjectType || null,
+                InventoryItemID: InventoryItemID ? parseInt(InventoryItemID) : null,
                 ClaimDetail,
                 Amount: parseFloat(Amount) || 0,
                 IsCheckMileage: IsCheckMileage || false,
@@ -204,7 +210,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
         if (!claim) {
             return NextResponse.json(
-                { success: false, error: 'ไม่พบเคลม' },
+                { success: false, error: 'ไม่พบใบงาน' },
                 { status: 404 }
             );
         }

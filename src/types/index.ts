@@ -56,6 +56,9 @@ export interface Claim {
     BranchID: number;
     CarModel: string;
     CarRegister: string;
+    VinNo?: string;
+    ProjectType?: string;
+    InventoryItemID?: number;
     CustomerName: string;
     IsCheckMileage: boolean;
     Mileage: number;

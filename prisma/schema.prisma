@@ -108,6 +108,8 @@ model CM_DocClaim {
   CarModel      String    @db.NVarChar(100)
   CarRegister   String    @db.NVarChar(20)
   VinNo         String?   @db.NVarChar(50)
+  ProjectType   String?   @db.NVarChar(50)   // ประเภทโปรเจค เช่น Owner, Rental
+  InventoryItemID Int?                      // Reference ID จากระบบ Inventory
   
   // Customer Information
   CustomerName  String    @db.NVarChar(100)

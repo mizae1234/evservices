@@ -35,6 +35,9 @@ export default function NewClaimPage() {
         CustomerName: '',
         CarModel: '',
         CarRegister: '',
+        VinNo: '',
+        ProjectType: '',
+        InventoryItemID: null as number | null,
         ClaimDetail: '',
         Amount: '',
         IsCheckMileage: false,
@@ -44,6 +47,19 @@ export default function NewClaimPage() {
         CustomMileage: '', // กรอกระยะเอง (เมื่อเลือก 'อื่นๆ')
         BranchID: '', // Selected branch
     });
+
+    // Vehicle lookup autocomplete state
+    interface VehicleData {
+        InventoryItemID: number;
+        VinNo: string;
+        RegisterNo: string;
+        ProjectType: string;
+        Model: string;
+        CustomerName: string;
+    }
+    const [vehicleSuggestions, setVehicleSuggestions] = useState<VehicleData[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [isSearching, setIsSearching] = useState(false);
 
     // Options สำหรับระยะเช็ค - ดึงจาก database
     const [mileageOptions, setMileageOptions] = useState<{ value: string; label: string }[]>([]);
@@ -104,6 +120,57 @@ export default function NewClaimPage() {
         if (errors[name]) {
             setErrors((prev) => ({ ...prev, [name]: '' }));
         }
+    };
+
+    // Vehicle search with debounce
+    const searchVehicles = async (query: string) => {
+        if (query.length < 4) {
+            setVehicleSuggestions([]);
+            setShowSuggestions(false);
+            return;
+        }
+
+        setIsSearching(true);
+        try {
+            const res = await fetch(`/api/vehicles/lookup?q=${encodeURIComponent(query)}`);
+            const data = await res.json();
+            if (data.success && data.data.length > 0) {
+                setVehicleSuggestions(data.data);
+                setShowSuggestions(true);
+            } else {
+                setVehicleSuggestions([]);
+                setShowSuggestions(false);
+            }
+        } catch (error) {
+            console.error('Error searching vehicles:', error);
+        } finally {
+            setIsSearching(false);
+        }
+    };
+
+    // Handle car register input change with search
+    const handleCarRegisterChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setFormData((prev) => ({ ...prev, CarRegister: value }));
+        if (errors.CarRegister) {
+            setErrors((prev) => ({ ...prev, CarRegister: '' }));
+        }
+        searchVehicles(value);
+    };
+
+    // Handle vehicle selection from autocomplete
+    const handleVehicleSelect = (vehicle: VehicleData) => {
+        setFormData((prev) => ({
+            ...prev,
+            CarRegister: vehicle.RegisterNo,
+            VinNo: vehicle.VinNo,
+            ProjectType: vehicle.ProjectType,
+            CustomerName: vehicle.CustomerName,
+            CarModel: vehicle.Model,
+            InventoryItemID: vehicle.InventoryItemID,
+        }));
+        setShowSuggestions(false);
+        setVehicleSuggestions([]);
     };
 
     const validate = () => {
@@ -243,26 +310,48 @@ export default function NewClaimPage() {
                             </div>
                         </div>
 
-                        {/* Customer Information */}
-                        <div className="pt-4 border-t border-gray-100">
-                            <h3 className="text-sm font-semibold text-gray-700 mb-4">ข้อมูลลูกค้า</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <Input
-                                    label="ชื่อลูกค้า"
-                                    name="CustomerName"
-                                    value={formData.CustomerName}
-                                    onChange={handleChange}
-                                    error={errors.CustomerName}
-                                    placeholder="นาย/นาง/นางสาว ชื่อ นามสกุล"
-                                    required
-                                />
-                            </div>
-                        </div>
-
                         {/* Vehicle Information */}
                         <div className="pt-4 border-t border-gray-100">
                             <h3 className="text-sm font-semibold text-gray-700 mb-4">ข้อมูลรถยนต์</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Car Register with Autocomplete */}
+                                <div className="relative">
+                                    <Input
+                                        label="ทะเบียนรถ"
+                                        name="CarRegister"
+                                        value={formData.CarRegister}
+                                        onChange={handleCarRegisterChange}
+                                        onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                                        error={errors.CarRegister}
+                                        placeholder="พิมพ์ทะเบียนเพื่อค้นหา..."
+                                        required
+                                    />
+                                    {isSearching && (
+                                        <div className="absolute right-3 top-9">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                                        </div>
+                                    )}
+                                    {showSuggestions && vehicleSuggestions.length > 0 && (
+                                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                            {vehicleSuggestions.map((vehicle) => (
+                                                <button
+                                                    key={vehicle.InventoryItemID}
+                                                    type="button"
+                                                    onClick={() => handleVehicleSelect(vehicle)}
+                                                    className="w-full px-4 py-3 text-left hover:bg-blue-50 border-b border-gray-100 last:border-b-0"
+                                                >
+                                                    <div className="font-medium text-gray-900">{vehicle.RegisterNo}</div>
+                                                    <div className="text-sm text-gray-500">
+                                                        {vehicle.Model} • {vehicle.CustomerName}
+                                                    </div>
+                                                    <div className="text-xs text-gray-400">
+                                                        VIN: {vehicle.VinNo} | {vehicle.ProjectType}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                                 <Select
                                     label="รุ่นรถ"
                                     name="CarModel"
@@ -274,12 +363,33 @@ export default function NewClaimPage() {
                                     required
                                 />
                                 <Input
-                                    label="ทะเบียนรถ"
-                                    name="CarRegister"
-                                    value={formData.CarRegister}
+                                    label="VIN No."
+                                    name="VinNo"
+                                    value={formData.VinNo}
                                     onChange={handleChange}
-                                    error={errors.CarRegister}
-                                    placeholder="กท1234"
+                                    placeholder="เลขตัวถัง"
+                                />
+                                <Input
+                                    label="Project Type"
+                                    name="ProjectType"
+                                    value={formData.ProjectType}
+                                    onChange={handleChange}
+                                    placeholder="Owner / Rental / Fleet"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Customer Information */}
+                        <div className="pt-4 border-t border-gray-100">
+                            <h3 className="text-sm font-semibold text-gray-700 mb-4">ข้อมูลลูกค้า</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Input
+                                    label="ชื่อลูกค้า"
+                                    name="CustomerName"
+                                    value={formData.CustomerName}
+                                    onChange={handleChange}
+                                    error={errors.CustomerName}
+                                    placeholder="นาย/นาง/นางสาว ชื่อ นามสกุล"
                                     required
                                 />
                             </div>
