@@ -1,0 +1,189 @@
+// Prisma Schema for Car Service Claim Management System
+// All tables use CM_ prefix as requested
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// Master Data Tables
+// ==========================================
+
+model CM_Role {
+  RoleID      Int       @id @default(autoincrement())
+  RoleName    String    @db.NVarChar(50)
+  RoleCode    String    @unique @db.NVarChar(20)
+  Description String?   @db.NVarChar(200)
+  IsActive    Boolean   @default(true)
+  CreateDate  DateTime  @default(now())
+  UpdateDate  DateTime  @updatedAt
+
+  Users CM_User[]
+
+  @@map("CM_Role")
+}
+
+model CM_User {
+  UserID       Int       @id @default(autoincrement())
+  Email        String    @unique @db.NVarChar(100)
+  PasswordHash String    @db.NVarChar(255)
+  FullName     String    @db.NVarChar(100)
+  Phone        String?   @db.NVarChar(20)
+  RoleID       Int
+  BranchID     Int?
+  IsActive     Boolean   @default(true)
+  CreateDate   DateTime  @default(now())
+  UpdateDate   DateTime  @updatedAt
+
+  Role   CM_Role           @relation(fields: [RoleID], references: [RoleID], onDelete: NoAction, onUpdate: NoAction)
+  Branch CM_MsServiceBranch? @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
+
+  CreatedClaims  CM_DocClaim[] @relation("ClaimCreator")
+  UpdatedClaims  CM_DocClaim[] @relation("ClaimUpdater")
+  ClaimLogs      CM_ClaimLog[]
+
+  @@map("CM_User")
+}
+
+model CM_MsServiceBranch {
+  BranchID    Int       @id @default(autoincrement())
+  BranchCode  String    @unique @db.NVarChar(20)
+  BranchName  String    @db.NVarChar(100)
+  Address     String?   @db.NVarChar(500)
+  Phone       String?   @db.NVarChar(20)
+  IsActive    Boolean   @default(true)
+  CreateDate  DateTime  @default(now())
+  UpdateDate  DateTime  @updatedAt
+
+  Users  CM_User[]
+  Claims CM_DocClaim[]
+
+  @@map("CM_MsServiceBranch")
+}
+
+model CM_MsCarModel {
+  ModelID     Int       @id @default(autoincrement())
+  ModelCode   String    @unique @db.NVarChar(20)
+  ModelName   String    @db.NVarChar(100)
+  Brand       String?   @db.NVarChar(50)
+  IsActive    Boolean   @default(true)
+  CreateDate  DateTime  @default(now())
+  UpdateDate  DateTime  @updatedAt
+
+  @@map("CM_MsCarModel")
+}
+
+model CM_MsMileage {
+  MileageID   Int       @id @default(autoincrement())
+  Value       Int                              // ค่าระยะทาง เช่น 5000, 20000
+  Label       String    @db.NVarChar(50)       // ข้อความแสดง เช่น "5,000 กิโลเมตร"
+  SortOrder   Int       @default(0)            // ลำดับการแสดง
+  IsActive    Boolean   @default(true)
+  CreateDate  DateTime  @default(now())
+  UpdateDate  DateTime  @updatedAt
+
+  @@map("CM_MsMileage")
+}
+
+// ==========================================
+// Claim Tables
+// ==========================================
+
+model CM_DocClaim {
+  ClaimID       Int       @id @default(autoincrement())
+  ClaimNo       String    @unique @db.NVarChar(50)
+  ClaimDate     DateTime  @default(now())
+  ClaimDetail   String?   @db.NVarChar(Max)
+  Amount        Decimal   @db.Decimal(18, 2)
+  
+  // Branch Reference
+  BranchID      Int
+  
+  // Vehicle Information
+  CarModel      String    @db.NVarChar(100)
+  CarRegister   String    @db.NVarChar(20)
+  VinNo         String?   @db.NVarChar(50)
+  
+  // Customer Information
+  CustomerName  String    @db.NVarChar(100)
+  
+  // Mileage Check
+  IsCheckMileage Boolean  @default(false)
+  Mileage       Int       @default(0)
+  LastMileage   Int       @default(0)
+  
+  // Status: 0=Draft, 1=Pending, 2=Approved, 3=Rejected, 4=NeedInfo
+  Status        Int       @default(0)
+  
+  // Document Information
+  DocUrl        String?   @db.NVarChar(500)
+  DocName       String?   @db.NVarChar(255)
+  S3Path        String?   @db.NVarChar(500)
+  
+  // Approval Information
+  ApprovalNote  String?   @db.NVarChar(Max)
+  ApprovedDate  DateTime?
+  ApprovedBy    Int?
+  
+  // Audit Fields
+  IsActive      Boolean   @default(true)
+  CreateBy      Int
+  CreateDate    DateTime  @default(now())
+  UpdateBy      Int?
+  UpdateDate    DateTime  @updatedAt
+
+  // Relations
+  Branch       CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
+  Creator      CM_User            @relation("ClaimCreator", fields: [CreateBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
+  Updater      CM_User?           @relation("ClaimUpdater", fields: [UpdateBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
+  
+  Files        CM_ClaimFile[]
+  Logs         CM_ClaimLog[]
+
+  @@index([ClaimNo])
+  @@index([Status])
+  @@index([BranchID])
+  @@index([ClaimDate])
+  @@map("CM_DocClaim")
+}
+
+model CM_ClaimFile {
+  FileID      Int       @id @default(autoincrement())
+  ClaimID     Int
+  FileName    String    @db.NVarChar(255)
+  FileType    String    @db.NVarChar(50)
+  FileSize    Int
+  FilePath    String    @db.NVarChar(500)
+  S3Path      String?   @db.NVarChar(500)
+  IsActive    Boolean   @default(true)
+  CreateBy    Int
+  CreateDate  DateTime  @default(now())
+
+  Claim CM_DocClaim @relation(fields: [ClaimID], references: [ClaimID], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([ClaimID])
+  @@map("CM_ClaimFile")
+}
+
+model CM_ClaimLog {
+  LogID       Int       @id @default(autoincrement())
+  ClaimID     Int
+  Action      String    @db.NVarChar(50)  // CREATED, SUBMITTED, APPROVED, REJECTED, INFO_REQUESTED, UPDATED
+  Description String?   @db.NVarChar(500)
+  OldStatus   Int?
+  NewStatus   Int?
+  ActionBy    Int
+  ActionDate  DateTime  @default(now())
+
+  Claim CM_DocClaim @relation(fields: [ClaimID], references: [ClaimID], onDelete: Cascade, onUpdate: NoAction)
+  User  CM_User     @relation(fields: [ActionBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([ClaimID])
+  @@index([ActionDate])
+  @@map("CM_ClaimLog")
+}
