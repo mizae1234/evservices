@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { Card, CardContent, CardHeader, CardTitle, StatusBadge, LoadingPage } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, StatusBadge, LoadingPage, Button, Input } from '@/components/ui';
 import { Header } from '@/components/layouts';
 import { formatDate, formatCurrency } from '@/lib/utils';
 import { DashboardStats, Claim } from '@/types';
@@ -19,6 +19,9 @@ import {
     TrendingUp,
     Building,
     ArrowRight,
+    Calendar,
+    Search,
+    X,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
@@ -27,14 +30,26 @@ export default function AdminDashboardPage() {
     const [pendingClaims, setPendingClaims] = useState<Claim[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Date range filter state
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+
     useEffect(() => {
         fetchData();
     }, []);
 
-    const fetchData = async () => {
+    const fetchData = async (start?: string, end?: string) => {
+        setIsLoading(true);
         try {
+            // Build query params for stats
+            const statsParams = new URLSearchParams();
+            if (start) statsParams.set('startDate', start);
+            if (end) statsParams.set('endDate', end);
+
+            const statsUrl = `/api/dashboard/stats${statsParams.toString() ? '?' + statsParams.toString() : ''}`;
+
             const [statsRes, claimsRes] = await Promise.all([
-                fetch('/api/dashboard/stats'),
+                fetch(statsUrl),
                 fetch('/api/claims?status=1&pageSize=5'),
             ]);
 
@@ -50,7 +65,17 @@ export default function AdminDashboardPage() {
         }
     };
 
-    if (isLoading) return <LoadingPage />;
+    const handleSearch = () => {
+        fetchData(startDate, endDate);
+    };
+
+    const handleClearFilter = () => {
+        setStartDate('');
+        setEndDate('');
+        fetchData();
+    };
+
+    if (isLoading && !stats) return <LoadingPage />;
 
     const statCards = [
         {
@@ -99,6 +124,64 @@ export default function AdminDashboardPage() {
             />
 
             <div className="mt-6 space-y-6">
+                {/* Date Range Filter */}
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="flex flex-wrap items-end gap-4">
+                            <div className="flex items-center gap-2">
+                                <Calendar className="w-5 h-5 text-gray-500" />
+                                <span className="text-sm font-medium text-gray-700">ช่วงวันที่:</span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div>
+                                    <label className="block text-xs text-gray-500 mb-1">วันที่เริ่มต้น</label>
+                                    <Input
+                                        type="date"
+                                        value={startDate}
+                                        onChange={(e) => setStartDate(e.target.value)}
+                                        className="w-40"
+                                    />
+                                </div>
+                                <span className="text-gray-400 mt-5">-</span>
+                                <div>
+                                    <label className="block text-xs text-gray-500 mb-1">วันที่สิ้นสุด</label>
+                                    <Input
+                                        type="date"
+                                        value={endDate}
+                                        onChange={(e) => setEndDate(e.target.value)}
+                                        className="w-40"
+                                    />
+                                </div>
+                                <div className="flex gap-2 mt-5">
+                                    <Button
+                                        onClick={handleSearch}
+                                        disabled={isLoading}
+                                        className="flex items-center gap-2"
+                                    >
+                                        <Search className="w-4 h-4" />
+                                        ค้นหา
+                                    </Button>
+                                    {(startDate || endDate) && (
+                                        <Button
+                                            variant="outline"
+                                            onClick={handleClearFilter}
+                                            className="flex items-center gap-2"
+                                        >
+                                            <X className="w-4 h-4" />
+                                            ล้างตัวกรอง
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        {(startDate || endDate) && (
+                            <div className="mt-3 text-sm text-blue-600">
+                                แสดงข้อมูล: {startDate ? formatDate(new Date(startDate)) : 'ไม่จำกัด'} ถึง {endDate ? formatDate(new Date(endDate)) : 'ปัจจุบัน'}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
                 {/* Stats Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                     {statCards.map((stat) => (

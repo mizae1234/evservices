@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+npm-debug.log
+
+# Build output
+.next
+out
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Environment files (use docker-compose environment instead)
+.env
+.env*.local
+
+# Documentation
+docs
+README.md
+*.md
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__
+coverage
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug logs
+*.log
+
+# Temporary files
+tmp
+temp
