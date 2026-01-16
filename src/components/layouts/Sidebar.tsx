@@ -17,6 +17,8 @@ import {
     Building,
     Car,
     FileSpreadsheet,
+    Users,
+    User,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -71,6 +73,19 @@ const menuItems: MenuItem[] = [
         icon: <FileSpreadsheet className="w-5 h-5" />,
         roles: ['ADMIN'],
     },
+    {
+        label: 'จัดการผู้ใช้',
+        href: '/admin/users',
+        icon: <Users className="w-5 h-5" />,
+        roles: ['ADMIN'],
+    },
+    // Profile (all users)
+    {
+        label: 'โปรไฟล์',
+        href: '/profile',
+        icon: <User className="w-5 h-5" />,
+        roles: ['SERVICE_CENTER', 'ADMIN'],
+    },
 ];
 
 export function Sidebar() {
@@ -86,6 +101,7 @@ export function Sidebar() {
         (item) => item.href.startsWith('/service-center')
     );
     const adminItems = filteredItems.filter((item) => item.href.startsWith('/admin'));
+    const profileItems = filteredItems.filter((item) => item.href.startsWith('/profile'));
 
     return (
         <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-gray-200 flex flex-col">
@@ -139,6 +155,33 @@ export function Sidebar() {
                         </p>
                         <ul className="space-y-1">
                             {adminItems.map((item) => (
+                                <li key={item.href}>
+                                    <Link
+                                        href={item.href}
+                                        className={cn(
+                                            'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                                            pathname === item.href
+                                                ? 'bg-blue-50 text-blue-700'
+                                                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                                        )}
+                                    >
+                                        {item.icon}
+                                        {item.label}
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {/* Profile Section */}
+                {profileItems.length > 0 && (
+                    <div className="mb-6">
+                        <p className="px-3 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                            บัญชี
+                        </p>
+                        <ul className="space-y-1">
+                            {profileItems.map((item) => (
                                 <li key={item.href}>
                                     <Link
                                         href={item.href}
