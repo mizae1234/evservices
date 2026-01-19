@@ -251,8 +251,10 @@ export default function EditClaimPage() {
         } else if (/\s/.test(formData.CarRegister)) {
             newErrors.CarRegister = 'กรุณากรอกทะเบียนรถติดกัน ไม่มีช่องว่าง';
         }
-        if (!formData.Amount || parseFloat(formData.Amount) <= 0) {
+        if (!formData.Amount && formData.Amount !== '0') {
             newErrors.Amount = 'กรุณากรอกจำนวนเงิน';
+        } else if (parseFloat(formData.Amount) < 0) {
+            newErrors.Amount = 'จำนวนเงินต้องไม่ติดลบ';
         }
         // Validate Branch for Admin
         if (session?.user?.role === 'ADMIN' && !formData.BranchID) {
