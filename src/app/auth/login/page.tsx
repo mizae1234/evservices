@@ -95,22 +95,7 @@ export default function LoginPage() {
                         </Button>
                     </form>
 
-                    {/* Demo Accounts */}
-                    <div className="mt-8 pt-6 border-t border-gray-100">
-                        <p className="text-sm text-gray-500 text-center mb-3">
-                            บัญชีทดสอบ (Demo)
-                        </p>
-                        <div className="space-y-2 text-xs text-gray-600">
-                            <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                <span>Admin:</span>
-                                <span className="font-mono">admin@demo.com / password123</span>
-                            </div>
-                            <div className="flex justify-between p-2 bg-gray-50 rounded">
-                                <span>ศูนย์บริการ:</span>
-                                <span className="font-mono">service1@demo.com / password123</span>
-                            </div>
-                        </div>
-                    </div>
+
                 </CardContent>
             </Card>
         </div>
