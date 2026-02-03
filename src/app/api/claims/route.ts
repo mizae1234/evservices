@@ -63,12 +63,12 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Search filter
+        // Search filter (SQL Server uses case-insensitive collation by default)
         if (search) {
             where.OR = [
-                { ClaimNo: { contains: search, mode: 'insensitive' } },
-                { CustomerName: { contains: search, mode: 'insensitive' } },
-                { CarRegister: { contains: search, mode: 'insensitive' } },
+                { ClaimNo: { contains: search } },
+                { CustomerName: { contains: search } },
+                { CarRegister: { contains: search } },
             ];
         }
 
