@@ -22,8 +22,8 @@ interface EV7ApiResponse {
     ErrorMsg: string | null;
 }
 
-const EV7_API_URL = 'https://ev7tracking.icareprojects.com/api/EVSeven/GetCarInfo';
-const EV7_API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1laWQiOiIzNSIsInVuaXF1ZV9uYW1lIjoi4LiE4Li44LiTR0kgVXNlciIsImVtYWlsIjoiZ2lAdGVzdC5jb20iLCJmaXJzdE5hbWUiOiJHSSIsImxhc3ROYW1lIjoiVXNlciIsImZ1bGxOYW1lIjoi4LiE4Li44LiTR0kgVXNlciIsImlzQWRtaW4iOiJGYWxzZSIsImlzQWN0aXZlIjoiVHJ1ZSIsImp0aSI6IjY4YWMyMmRlLWQ3OWItNDFlNy1hMDkyLTc5ZmIxYTBlNDgwYyIsImlhdCI6MTc2ODM5OTY0Miwicm9sZSI6IlVzZXIiLCJuYmYiOjE3NjgzOTk2NDIsImV4cCI6MTc3MDk5MTY0MiwiaXNzIjoiRVY3WElDQVJFIiwiYXVkIjoiSUNBUkUifQ.3fWNvXW1Zah5b9V47-M_5In9zwsvHOYIOGkebSKKZWg';
+const EV7_API_URL = process.env.EV7_API_URL || '';
+const EV7_API_TOKEN = process.env.EV7_API_TOKEN || '';
 
 export async function GET(request: NextRequest) {
     try {
