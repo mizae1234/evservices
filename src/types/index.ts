@@ -51,6 +51,7 @@ export interface Claim {
     ClaimID: number;
     ClaimNo: string;
     ClaimDate: Date;
+    ServiceDate?: Date;
     ClaimDetail?: string;
     Amount: number;
     BranchID: number;
@@ -82,6 +83,7 @@ export interface Claim {
 }
 
 export interface ClaimFormData {
+    ServiceDate: string;
     CustomerName: string;
     CarModel: string;
     CarRegister: string;

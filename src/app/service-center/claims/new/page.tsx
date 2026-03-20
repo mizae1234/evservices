@@ -32,6 +32,7 @@ export default function NewClaimPage() {
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     const [formData, setFormData] = useState({
+        ServiceDate: new Date().toISOString().split('T')[0], // default วันนี้
         CustomerName: '',
         CarModel: '',
         CarRegister: '',
@@ -308,6 +309,14 @@ export default function NewClaimPage() {
                                     disabled={!isAdmin} // Disable if not admin
                                     error={errors.BranchID}
                                     required={isAdmin}
+                                />
+                                <Input
+                                    label="วันที่เข้ารับบริการ"
+                                    name="ServiceDate"
+                                    type="date"
+                                    value={formData.ServiceDate}
+                                    onChange={handleChange}
+                                    required
                                 />
                             </div>
                         </div>

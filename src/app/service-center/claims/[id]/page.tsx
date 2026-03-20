@@ -108,6 +108,9 @@ export default function ClaimDetailPage() {
                                         <div>
                                             <h2 className="text-xl font-bold text-gray-900">{claim.ClaimNo}</h2>
                                             <p className="text-gray-500">สร้างเมื่อ {formatDateTime(claim.ClaimDate)}</p>
+                                            {claim.ServiceDate && (
+                                                <p className="text-gray-500">วันที่เข้ารับบริการ {formatDate(claim.ServiceDate)}</p>
+                                            )}
                                         </div>
                                     </div>
                                     <StatusBadge status={claim.Status} />

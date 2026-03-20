@@ -36,6 +36,7 @@ export default function EditClaimPage() {
     const [files, setFiles] = useState<File[]>([]);
 
     const [formData, setFormData] = useState({
+        ServiceDate: '',
         CustomerName: '',
         CarModel: '',
         CarRegister: '',
@@ -121,6 +122,9 @@ export default function EditClaimPage() {
                 }
 
                 setFormData({
+                    ServiceDate: c.ServiceDate
+                        ? new Date(c.ServiceDate).toISOString().split('T')[0]
+                        : (c.ClaimDate ? new Date(c.ClaimDate).toISOString().split('T')[0] : ''),
                     CustomerName: c.CustomerName || '',
                     CarModel: c.CarModel || '',
                     CarRegister: c.CarRegister || '',
@@ -377,6 +381,14 @@ export default function EditClaimPage() {
                                     disabled={!isAdmin} // Disable if not admin
                                     error={errors.BranchID}
                                     required={isAdmin}
+                                />
+                                <Input
+                                    label="วันที่เข้ารับบริการ"
+                                    name="ServiceDate"
+                                    type="date"
+                                    value={formData.ServiceDate}
+                                    onChange={handleChange}
+                                    required
                                 />
                             </div>
                         </div>

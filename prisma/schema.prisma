@@ -98,6 +98,7 @@ model CM_DocClaim {
   ClaimID       Int       @id @default(autoincrement())
   ClaimNo       String    @unique @db.NVarChar(50)
   ClaimDate     DateTime  @default(now())
+  ServiceDate   DateTime?                      // วันที่ลูกค้าเข้ารับบริการ
   ClaimDetail   String?   @db.NVarChar(Max)
   Amount        Decimal   @db.Decimal(18, 2)
   

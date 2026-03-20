@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
             IsCheckMileage,
             Mileage,
             LastMileage,
+            ServiceDate,
             submitNow,
         } = body;
 
@@ -196,6 +197,7 @@ export async function POST(request: NextRequest) {
                 IsCheckMileage: IsCheckMileage || false,
                 Mileage: parseInt(Mileage) || 0,
                 LastMileage: parseInt(LastMileage) || 0,
+                ServiceDate: ServiceDate ? new Date(ServiceDate) : new Date(),
                 Status: submitNow ? CLAIM_STATUS.PENDING : CLAIM_STATUS.DRAFT,
                 BranchID: (session.user.role === 'ADMIN' && body.BranchID) ? parseInt(body.BranchID) : (user?.BranchID || 1),
                 CreateBy: user!.UserID,

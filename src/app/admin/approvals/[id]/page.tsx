@@ -173,6 +173,12 @@ export default function AdminClaimReviewPage() {
                                                 <Building className="w-4 h-4" />
                                                 {claim.Branch?.BranchName}
                                             </div>
+                                            {claim.ServiceDate && (
+                                                <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                                                    <Calendar className="w-4 h-4" />
+                                                    วันที่เข้ารับบริการ {formatDate(claim.ServiceDate)}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     <StatusBadge status={claim.Status} />

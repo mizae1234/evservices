@@ -211,6 +211,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             year: 'numeric',
         });
 
+        // Format service date (วันที่เข้ารับบริการ) — ใช้ ServiceDate ถ้ามี, fallback เป็น ClaimDate
+        const serviceDate = claim.ServiceDate || claim.ClaimDate;
+        const formattedServiceDate = new Date(serviceDate).toLocaleDateString('th-TH', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+        });
+
         // Determine mileage checkbox - ดึงจาก database
         const mileageValue = claim.Mileage || 0;
         const mileageOptionsFromDb = await prisma.cM_MsMileage.findMany({
@@ -257,7 +265,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                     </View>
 
                     <Text style={styles.bodyText}>
-                        บริษัท อีวีเซเว่น จำกัด ขอส่งรถยนต์ยี่ห้อ AION รุ่น {carModel} ทะเบียน {carRegister} {vinNo ? `VIN: ${vinNo}` : ''} เลขกิโลเมตร {lastMileage} KM. โดยมอบหมายให้ EV7 เข้ารับบริการในวันที่ {formattedDate} ตามรายการต่อไปนี้
+                        บริษัท อีวีเซเว่น จำกัด ขอส่งรถยนต์ยี่ห้อ AION รุ่น {carModel} ทะเบียน {carRegister} {vinNo ? `VIN: ${vinNo}` : ''} เลขกิโลเมตร {lastMileage} KM. โดยมอบหมายให้ EV7 เข้ารับบริการในวันที่ {formattedServiceDate} ตามรายการต่อไปนี้
                     </Text>
 
                     {claim.IsCheckMileage && (

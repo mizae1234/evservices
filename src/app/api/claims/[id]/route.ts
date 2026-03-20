@@ -124,6 +124,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
             IsCheckMileage,
             Mileage,
             LastMileage,
+            ServiceDate,
             submitNow,
         } = body;
 
@@ -144,6 +145,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 IsCheckMileage: IsCheckMileage || false,
                 Mileage: parseInt(Mileage) || 0,
                 LastMileage: parseInt(LastMileage) || 0,
+                ServiceDate: ServiceDate ? new Date(ServiceDate) : undefined,
                 Status: newStatus,
                 BranchID: (session.user.role === 'ADMIN' && body.BranchID) ? parseInt(body.BranchID) : undefined,
                 UpdateBy: user!.UserID,
