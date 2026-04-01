@@ -1,8 +1,9 @@
 // Sidebar Component
-// Navigation sidebar with role-based menu items
+// Navigation sidebar with role-based menu items and mobile responsive toggle
 
 'use client';
 
+import { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
@@ -19,6 +20,9 @@ import {
     FileSpreadsheet,
     Users,
     User,
+    Clock,
+    Menu,
+    X,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -74,6 +78,12 @@ const menuItems: MenuItem[] = [
         roles: ['ADMIN'],
     },
     {
+        label: 'รายงานอนุมัติ (TAT)',
+        href: '/admin/reports/turnaround-time',
+        icon: <Clock className="w-5 h-5" />,
+        roles: ['ADMIN'],
+    },
+    {
         label: 'จัดการผู้ใช้',
         href: '/admin/users',
         icon: <Users className="w-5 h-5" />,
@@ -91,10 +101,27 @@ const menuItems: MenuItem[] = [
 export function Sidebar() {
     const pathname = usePathname();
     const { data: session } = useSession();
+    const [isOpen, setIsOpen] = useState(false);
 
     const userRole = session?.user?.role || 'SERVICE_CENTER';
 
     const filteredItems = menuItems.filter((item) => item.roles.includes(userRole));
+
+    // Close sidebar on route change (mobile)
+    useEffect(() => {
+        setIsOpen(false);
+    }, [pathname]);
+
+    // Close sidebar on resize to desktop
+    useEffect(() => {
+        const handleResize = () => {
+            if (window.innerWidth >= 1024) {
+                setIsOpen(false);
+            }
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Group items by section
     const serviceCenterItems = filteredItems.filter(
@@ -103,10 +130,10 @@ export function Sidebar() {
     const adminItems = filteredItems.filter((item) => item.href.startsWith('/admin'));
     const profileItems = filteredItems.filter((item) => item.href.startsWith('/profile'));
 
-    return (
-        <aside className="fixed left-0 top-0 h-screen w-64 bg-white border-r border-gray-200 flex flex-col">
+    const sidebarContent = (
+        <>
             {/* Logo */}
-            <div className="p-6 border-b border-gray-100">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
                         <Car className="w-6 h-6 text-white" />
@@ -116,6 +143,13 @@ export function Sidebar() {
                         <p className="text-xs text-gray-500">ระบบแจ้งงานบริการ</p>
                     </div>
                 </div>
+                {/* Close button - mobile only */}
+                <button
+                    onClick={() => setIsOpen(false)}
+                    className="lg:hidden p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                >
+                    <X className="w-5 h-5" />
+                </button>
             </div>
 
             {/* Navigation */}
@@ -222,6 +256,39 @@ export function Sidebar() {
                     ออกจากระบบ
                 </button>
             </div>
-        </aside>
+        </>
+    );
+
+    return (
+        <>
+            {/* Mobile Hamburger Button */}
+            <button
+                onClick={() => setIsOpen(true)}
+                className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white border border-gray-200 rounded-lg shadow-sm text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+            >
+                <Menu className="w-5 h-5" />
+            </button>
+
+            {/* Mobile Overlay */}
+            {isOpen && (
+                <div
+                    className="lg:hidden fixed inset-0 z-40 bg-black/50 transition-opacity"
+                    onClick={() => setIsOpen(false)}
+                />
+            )}
+
+            {/* Sidebar - Desktop: always visible, Mobile: slide-in overlay */}
+            <aside
+                className={cn(
+                    'fixed left-0 top-0 h-screen w-64 bg-white border-r border-gray-200 flex flex-col z-50 transition-transform duration-300',
+                    // Desktop: always show
+                    'lg:translate-x-0',
+                    // Mobile: slide in/out
+                    isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+                )}
+            >
+                {sidebarContent}
+            </aside>
+        </>
     );
 }

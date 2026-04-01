@@ -67,11 +67,6 @@ function TATReportsContent() {
     const [startDate, setStartDate] = useState(activeStartDate);
     const [endDate, setEndDate] = useState(activeEndDate);
 
-    const activeSubmittedStart = searchParams.get('submittedStartDate') || '';
-    const activeSubmittedEnd = searchParams.get('submittedEndDate') || '';
-    const [submittedStartDate, setSubmittedStartDate] = useState(activeSubmittedStart);
-    const [submittedEndDate, setSubmittedEndDate] = useState(activeSubmittedEnd);
-
     const [sortConfig, setSortConfig] = useState<{ key: keyof TATClaim | 'TurnaroundText', direction: 'asc' | 'desc' } | null>({ key: 'TotalTurnaroundHours', direction: 'desc' });
 
     useEffect(() => {
@@ -84,8 +79,6 @@ function TATReportsContent() {
             const params = new URLSearchParams();
             if (searchParams.get('startDate')) params.set('startDate', searchParams.get('startDate')!);
             if (searchParams.get('endDate')) params.set('endDate', searchParams.get('endDate')!);
-            if (searchParams.get('submittedStartDate')) params.set('submittedStartDate', searchParams.get('submittedStartDate')!);
-            if (searchParams.get('submittedEndDate')) params.set('submittedEndDate', searchParams.get('submittedEndDate')!);
             
             const res = await fetch(`/api/reports/turnaround-time?${params.toString()}`);
             const result = await res.json();
@@ -105,8 +98,6 @@ function TATReportsContent() {
         const params = new URLSearchParams();
         if (startDate) params.set('startDate', startDate);
         if (endDate) params.set('endDate', endDate);
-        if (submittedStartDate) params.set('submittedStartDate', submittedStartDate);
-        if (submittedEndDate) params.set('submittedEndDate', submittedEndDate);
         router.push(`/admin/reports/turnaround-time?${params.toString()}`);
     };
 
@@ -268,35 +259,6 @@ function TATReportsContent() {
                     </Button>
                 </div>
 
-                {/* Submitted Date Filters */}
-                <div className="flex flex-wrap gap-3 items-end">
-                    <div className="flex items-end gap-2">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">วันเริ่มต้น (ส่งอนุมัติ)</label>
-                            <Input
-                                type="date"
-                                value={submittedStartDate}
-                                onChange={(e) => setSubmittedStartDate(e.target.value)}
-                                className="w-40"
-                            />
-                        </div>
-                        <span className="text-gray-500 pb-2">-</span>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">วันสิ้นสุด (ส่งอนุมัติ)</label>
-                            <Input
-                                type="date"
-                                value={submittedEndDate}
-                                onChange={(e) => setSubmittedEndDate(e.target.value)}
-                                className="w-40"
-                            />
-                        </div>
-                    </div>
-                    {(submittedStartDate || submittedEndDate) && (
-                        <Button variant="ghost" size="sm" onClick={() => { setSubmittedStartDate(''); setSubmittedEndDate(''); }}>
-                            ล้างตัวกรองวันส่ง
-                        </Button>
-                    )}
-                </div>
 
                 {/* Report Table */}
                 <Card>
