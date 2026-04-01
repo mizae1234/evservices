@@ -32,6 +32,8 @@ export async function GET(request: NextRequest) {
         const searchParams = request.nextUrl.searchParams;
         const startDate = searchParams.get('startDate');
         const endDate = searchParams.get('endDate');
+        const submittedStartDate = searchParams.get('submittedStartDate');
+        const submittedEndDate = searchParams.get('submittedEndDate');
 
         // Build where clause
         const where: any = { 
@@ -120,12 +122,37 @@ export async function GET(request: NextRequest) {
             };
         });
 
+        // Filter by submitted date range (post-processing since SubmittedDate comes from Logs)
+        let filteredClaims = processedClaims;
+        if (submittedStartDate) {
+            const sStart = new Date(submittedStartDate);
+            filteredClaims = filteredClaims.filter(c => c.SubmittedDate && new Date(c.SubmittedDate) >= sStart);
+        }
+        if (submittedEndDate) {
+            const sEnd = new Date(submittedEndDate);
+            sEnd.setDate(sEnd.getDate() + 1); // include end date
+            filteredClaims = filteredClaims.filter(c => c.SubmittedDate && new Date(c.SubmittedDate) < sEnd);
+        }
+
+        // Re-compute averages based on filtered results
+        let filteredTotalMs = 0;
+        let filteredValidCount = 0;
+        filteredClaims.forEach(c => {
+            if (c.SubmittedDate && c.ApprovedDate) {
+                const diffMs = new Date(c.ApprovedDate).getTime() - new Date(c.SubmittedDate).getTime();
+                if (diffMs > 0) {
+                    filteredTotalMs += diffMs;
+                    filteredValidCount++;
+                }
+            }
+        });
+
         // Compute Averages
         let avgDays = 0;
         let avgHours = 0;
         
-        if (validClaimsCount > 0) {
-            const avgMs = totalMs / validClaimsCount;
+        if (filteredValidCount > 0) {
+            const avgMs = filteredTotalMs / filteredValidCount;
             const avgTotalHours = Math.floor(avgMs / (1000 * 60 * 60));
             avgDays = Math.floor(avgTotalHours / 24);
             avgHours = avgTotalHours % 24;
@@ -134,12 +161,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
             success: true,
             data: {
-                claims: processedClaims,
+                claims: filteredClaims,
                 average: {
                     days: avgDays,
                     hours: avgHours
                 },
-                totalProcessed: validClaimsCount
+                totalProcessed: filteredValidCount
             }
         });
     } catch (error) {
