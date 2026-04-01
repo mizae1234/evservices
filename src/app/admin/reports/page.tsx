@@ -19,7 +19,7 @@ import {
 import { Header } from '@/components/layouts';
 import { formatDate, formatCurrency } from '@/lib/utils';
 import { Claim, PaginatedResponse, CLAIM_STATUS } from '@/types';
-import { Search, Download, FileSpreadsheet } from 'lucide-react';
+import { Search, Download, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const statusOptions = [
     { value: 'all', label: 'ทุกสถานะ' },
@@ -47,6 +47,8 @@ function AdminReportsContent() {
 
     const [claims, setClaims] = useState<Claim[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [currentPage, setCurrentPage] = useState(1);
+    const ITEMS_PER_PAGE = 50;
 
     // Helper to get default dates
     const getDefaultDates = () => {
@@ -99,6 +101,7 @@ function AdminReportsContent() {
 
             if (data.success) {
                 setClaims(data.data);
+                setCurrentPage(1);
             }
         } catch (error) {
             console.error('Error fetching claims:', error);
@@ -122,6 +125,27 @@ function AdminReportsContent() {
         if (search) params.set('search', search);
 
         router.push(`/admin/reports?${params.toString()}`);
+    };
+
+    const totalPages = Math.ceil(claims.length / ITEMS_PER_PAGE);
+    const paginatedClaims = claims.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
+    const getPageNumbers = () => {
+        const pages = [];
+        let start = Math.max(1, currentPage - 2);
+        let end = Math.min(totalPages, currentPage + 2);
+        
+        if (currentPage <= 3) {
+            end = Math.min(totalPages, 5);
+        }
+        if (currentPage >= totalPages - 2) {
+            start = Math.max(1, totalPages - 4);
+        }
+
+        for (let i = start; i <= end; i++) {
+            pages.push(i);
+        }
+        return pages;
     };
 
     const handleExportExcel = () => {
@@ -281,7 +305,7 @@ function AdminReportsContent() {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-200">
-                                        {claims.map((claim) => (
+                                        {paginatedClaims.map((claim) => (
                                             <tr key={claim.ClaimID} className="hover:bg-gray-50">
                                                 <td className="px-4 py-3 whitespace-nowrap font-medium text-gray-900">
                                                     {claim.ClaimNo}
@@ -320,6 +344,47 @@ function AdminReportsContent() {
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+                        )}
+                        
+                        {!isLoading && claims.length > 0 && totalPages > 1 && (
+                            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200">
+                                <p className="text-sm text-gray-500">
+                                    แสดง {(currentPage - 1) * ITEMS_PER_PAGE + 1} -{' '}
+                                    {Math.min(currentPage * ITEMS_PER_PAGE, claims.length)}{' '}
+                                    จาก {claims.length} รายการ
+                                </p>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                                        disabled={currentPage === 1}
+                                    >
+                                        <ChevronLeft className="w-4 h-4" />
+                                    </Button>
+
+                                    {getPageNumbers().map(pageNum => (
+                                        <Button
+                                            key={pageNum}
+                                            variant={pageNum === currentPage ? "primary" : "outline"}
+                                            size="sm"
+                                            onClick={() => setCurrentPage(pageNum)}
+                                            className={pageNum === currentPage ? "bg-blue-600 text-white hover:bg-blue-700" : ""}
+                                        >
+                                            {pageNum}
+                                        </Button>
+                                    ))}
+
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                                        disabled={currentPage === totalPages}
+                                    >
+                                        <ChevronRight className="w-4 h-4" />
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </CardContent>
