@@ -42,15 +42,32 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Get counts for each status
-        const [total, draft, pending, approved, rejected, needInfo] = await Promise.all([
-            prisma.cM_DocClaim.count({ where }),
-            prisma.cM_DocClaim.count({ where: { ...where, Status: CLAIM_STATUS.DRAFT } }),
-            prisma.cM_DocClaim.count({ where: { ...where, Status: CLAIM_STATUS.PENDING } }),
-            prisma.cM_DocClaim.count({ where: { ...where, Status: CLAIM_STATUS.APPROVED } }),
-            prisma.cM_DocClaim.count({ where: { ...where, Status: CLAIM_STATUS.REJECTED } }),
-            prisma.cM_DocClaim.count({ where: { ...where, Status: CLAIM_STATUS.NEED_INFO } }),
-        ]);
+        // Get total count
+        const total = await prisma.cM_DocClaim.count({ where });
+
+        // Get counts grouped by status
+        const groupedStats = await prisma.cM_DocClaim.groupBy({
+            by: ['Status'],
+            where,
+            _count: {
+                Status: true
+            }
+        });
+
+        // Initialize status counts
+        let draft = 0, pending = 0, approved = 0, rejected = 0, needInfo = 0;
+
+        // Map grouped results to variables
+        groupedStats.forEach((group) => {
+            const count = group._count.Status;
+            switch (group.Status) {
+                case CLAIM_STATUS.DRAFT: draft = count; break;
+                case CLAIM_STATUS.PENDING: pending = count; break;
+                case CLAIM_STATUS.APPROVED: approved = count; break;
+                case CLAIM_STATUS.REJECTED: rejected = count; break;
+                case CLAIM_STATUS.NEED_INFO: needInfo = count; break;
+            }
+        });
 
         return NextResponse.json({
             success: true,
