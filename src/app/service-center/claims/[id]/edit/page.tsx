@@ -45,7 +45,7 @@ export default function EditClaimPage() {
         InventoryItemID: null as number | null,
         ClaimDetail: '',
         Amount: '',
-        IsCheckMileage: false,
+        IsCheckMileage: true,
         Mileage: '',
         LastMileage: '',
         MileageOption: '',
@@ -133,7 +133,7 @@ export default function EditClaimPage() {
                     InventoryItemID: c.InventoryItemID || null,
                     ClaimDetail: c.ClaimDetail || '',
                     Amount: c.Amount?.toString() || '',
-                    IsCheckMileage: c.IsCheckMileage || false,
+                    IsCheckMileage: true,
                     Mileage: mileageVal,
                     LastMileage: c.LastMileage?.toString() || '',
                     MileageOption: mileageOption,
@@ -260,6 +260,17 @@ export default function EditClaimPage() {
         } else if (parseFloat(formData.Amount) < 0) {
             newErrors.Amount = 'จำนวนเงินต้องไม่ติดลบ';
         }
+        // Validate mileage fields (required)
+        if (!formData.LastMileage) {
+            newErrors.LastMileage = 'กรุณากรอกไมล์ล่าสุด';
+        }
+        if (!formData.MileageOption) {
+            newErrors.MileageOption = 'กรุณาเลือกระยะ';
+        }
+        if (formData.MileageOption === 'other' && !formData.CustomMileage) {
+            newErrors.CustomMileage = 'กรุณาระบุระยะ';
+        }
+
         // Validate Branch for Admin
         if (session?.user?.role === 'ADMIN' && !formData.BranchID) {
             newErrors.BranchID = 'กรุณาเลือกสาขา';
@@ -480,66 +491,64 @@ export default function EditClaimPage() {
                         {/* Mileage Check */}
                         <div className="pt-4 border-t border-gray-100">
                             <h3 className="text-sm font-semibold text-gray-700 mb-4">ข้อมูลระยะทาง</h3>
-                            <div className="mb-4">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        name="IsCheckMileage"
-                                        checked={formData.IsCheckMileage}
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <Input
+                                        label="ไมล์ล่าสุด"
+                                        name="LastMileage"
+                                        type="number"
+                                        value={formData.LastMileage}
                                         onChange={handleChange}
-                                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        error={errors.LastMileage}
+                                        placeholder="เช่น 45000"
+                                        required
                                     />
-                                    <span className="text-sm text-gray-700">ตรวจเช็คระยะทาง</span>
-                                </label>
-                            </div>
-                            {formData.IsCheckMileage && (
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <Select
+                                        label="ระยะ"
+                                        name="MileageOption"
+                                        value={formData.MileageOption}
+                                        onChange={(e) => {
+                                            const value = e.target.value;
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                MileageOption: value,
+                                                Mileage: value !== 'other' ? value : prev.CustomMileage,
+                                            }));
+                                            if (errors.MileageOption) {
+                                                setErrors(prev => ({ ...prev, MileageOption: '' }));
+                                            }
+                                        }}
+                                        options={mileageOptions}
+                                        placeholder="เลือกระยะทาง"
+                                        error={errors.MileageOption}
+                                        required
+                                    />
+                                </div>
+                                {formData.MileageOption === 'other' && (
+                                    <div className="md:w-1/2">
                                         <Input
-                                            label="ไมล์ล่าสุด"
-                                            name="LastMileage"
+                                            label="ระบุระยะ (กิโลเมตร)"
+                                            name="CustomMileage"
                                             type="number"
-                                            value={formData.LastMileage}
-                                            onChange={handleChange}
-                                            placeholder="เช่น 45000"
-                                        />
-                                        <Select
-                                            label="ระยะ"
-                                            name="MileageOption"
-                                            value={formData.MileageOption}
+                                            value={formData.CustomMileage}
                                             onChange={(e) => {
                                                 const value = e.target.value;
                                                 setFormData(prev => ({
                                                     ...prev,
-                                                    MileageOption: value,
-                                                    Mileage: value !== 'other' ? value : prev.CustomMileage,
+                                                    CustomMileage: value,
+                                                    Mileage: value,
                                                 }));
+                                                if (errors.CustomMileage) {
+                                                    setErrors(prev => ({ ...prev, CustomMileage: '' }));
+                                                }
                                             }}
-                                            options={mileageOptions}
-                                            placeholder="เลือกระยะทาง"
+                                            error={errors.CustomMileage}
+                                            placeholder="เช่น 15000"
+                                            required
                                         />
                                     </div>
-                                    {formData.MileageOption === 'other' && (
-                                        <div className="md:w-1/2">
-                                            <Input
-                                                label="ระบุระยะ (กิโลเมตร)"
-                                                name="CustomMileage"
-                                                type="number"
-                                                value={formData.CustomMileage}
-                                                onChange={(e) => {
-                                                    const value = e.target.value;
-                                                    setFormData(prev => ({
-                                                        ...prev,
-                                                        CustomMileage: value,
-                                                        Mileage: value,
-                                                    }));
-                                                }}
-                                                placeholder="เช่น 15000"
-                                            />
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                )}
+                            </div>
                         </div>
 
                         {/* Claim Details */}
