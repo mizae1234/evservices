@@ -36,6 +36,7 @@ export interface ClaimFormData {
     MileageOption: string;
     CustomMileage: string;
     BranchID: string;
+    BookingType?: string;
 }
 
 interface ClaimFormProps {
@@ -71,6 +72,7 @@ const defaultFormData: ClaimFormData = {
     MileageOption: '',
     CustomMileage: '',
     BranchID: '',
+    BookingType: '',
 };
 
 export default function ClaimForm({
@@ -260,14 +262,17 @@ export default function ClaimForm({
         if (!formData.LastMileage) {
             newErrors.LastMileage = 'กรุณากรอกไมล์ล่าสุด';
         }
-        if (!formData.MileageOption) {
-            newErrors.MileageOption = 'กรุณาเลือกระยะ';
-        }
-        if (formData.MileageOption === 'other' && !formData.CustomMileage) {
-            newErrors.CustomMileage = 'กรุณาระบุระยะ';
+        if (formData.IsCheckMileage) {
+            if (!formData.MileageOption) {
+                newErrors.MileageOption = 'กรุณาเลือกระยะ';
+            }
+            if (formData.MileageOption === 'other' && !formData.CustomMileage) {
+                newErrors.CustomMileage = 'กรุณาระบุระยะ';
+            }
         }
 
-        if (session?.user?.role === 'ADMIN' && !formData.BranchID) {
+        const canSelectBranch = session?.user?.role === 'ADMIN' || session?.user?.role === 'CS';
+        if (canSelectBranch && !formData.BranchID) {
             newErrors.BranchID = 'กรุณาเลือกสาขา';
         }
 
@@ -294,6 +299,8 @@ export default function ClaimForm({
     }));
 
     const isAdmin = session?.user?.role === 'ADMIN';
+    const isCS = session?.user?.role === 'CS';
+    const canSelectBranch = isAdmin || isCS;
 
     return (
         <Card>
@@ -318,9 +325,9 @@ export default function ClaimForm({
                             onChange={handleChange}
                             options={branchOptions}
                             placeholder="เลือกสาขา"
-                            disabled={!isAdmin}
+                            disabled={!canSelectBranch}
                             error={errors.BranchID}
-                            required={isAdmin}
+                            required={canSelectBranch}
                         />
                         <Input
                             label="วันที่เข้ารับบริการ"
@@ -402,6 +409,36 @@ export default function ClaimForm({
                     </div>
                 </div>
 
+                {/* Customer/Booking Type Display */}
+                {formData.BookingType && (
+                    <div className="pt-4 border-t border-gray-100">
+                        <h3 className="text-sm font-semibold text-gray-700 mb-3">ประเภทลูกค้า / การจอง</h3>
+                        <div className="flex flex-wrap gap-3">
+                            <div className={`px-4 py-2.5 rounded-xl border text-sm font-bold flex items-center gap-2 select-none transition-all ${
+                                formData.BookingType === 'EV7'
+                                    ? 'bg-blue-50 border-blue-400 text-blue-700 ring-2 ring-blue-200'
+                                    : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'
+                            }`}>
+                                <span>🚕 EV7 (รถ Taxi)</span>
+                            </div>
+                            <div className={`px-4 py-2.5 rounded-xl border text-sm font-bold flex items-center gap-2 select-none transition-all ${
+                                formData.BookingType === 'RETAIL'
+                                    ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
+                                    : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'
+                            }`}>
+                                <span>🚗 Retail (ลูกค้าทั่วไป)</span>
+                            </div>
+                            <div className={`px-4 py-2.5 rounded-xl border text-sm font-bold flex items-center gap-2 select-none transition-all ${
+                                formData.BookingType === 'LINEMAN'
+                                    ? 'bg-green-50 border-green-400 text-green-700 ring-2 ring-green-200'
+                                    : 'bg-gray-50 border-gray-100 text-gray-400 opacity-60'
+                            }`}>
+                                <span>🛵 Lineman</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Customer Information */}
                 <div className="pt-4 border-t border-gray-100">
                     <h3 className="text-sm font-semibold text-gray-700 mb-4">ข้อมูลลูกค้า</h3>
@@ -415,6 +452,52 @@ export default function ClaimForm({
                             placeholder="นาย/นาง/นางสาว ชื่อ นามสกุล"
                             required
                         />
+                    </div>
+                </div>
+
+                {/* Service Type Selection */}
+                <div className="pt-4 border-t border-gray-100">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-4">ประเภทการเข้ารับบริการ</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFormData(prev => ({
+                                    ...prev,
+                                    IsCheckMileage: true,
+                                    MileageOption: prev.MileageOption || '',
+                                    Mileage: prev.MileageOption && prev.MileageOption !== 'other' ? prev.MileageOption : prev.CustomMileage || '0',
+                                }));
+                            }}
+                            className={`p-4 text-center rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 ${
+                                formData.IsCheckMileage
+                                    ? 'bg-blue-50 border-blue-500 text-blue-700 ring-2 ring-blue-500/10'
+                                    : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-600'
+                            }`}
+                        >
+                            <span>🚗</span>
+                            <span>ตรวจเช็คตามระยะทาง (Periodic Check)</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setFormData(prev => ({
+                                    ...prev,
+                                    IsCheckMileage: false,
+                                    Mileage: '0',
+                                    MileageOption: '',
+                                    CustomMileage: '',
+                                }));
+                            }}
+                            className={`p-4 text-center rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-200 ${
+                                !formData.IsCheckMileage
+                                    ? 'bg-blue-50 border-blue-500 text-blue-700 ring-2 ring-blue-500/10'
+                                    : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-600'
+                            }`}
+                        >
+                            <span>🔧</span>
+                            <span>ซ่อมเคลมทั่วไป / อาการชำรุดอื่นๆ (General Repairs)</span>
+                        </button>
                     </div>
                 </div>
 
@@ -433,28 +516,30 @@ export default function ClaimForm({
                                 placeholder="เช่น 45000"
                                 required
                             />
-                            <Select
-                                label="ระยะ"
-                                name="MileageOption"
-                                value={formData.MileageOption}
-                                onChange={(e) => {
-                                    const value = e.target.value;
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        MileageOption: value,
-                                        Mileage: value !== 'other' ? value : prev.CustomMileage,
-                                    }));
-                                    if (errors.MileageOption) {
-                                        setErrors(prev => ({ ...prev, MileageOption: '' }));
-                                    }
-                                }}
-                                options={mileageOptions}
-                                placeholder="เลือกระยะทาง"
-                                error={errors.MileageOption}
-                                required
-                            />
+                            {formData.IsCheckMileage && (
+                                <Select
+                                    label="ระยะ"
+                                    name="MileageOption"
+                                    value={formData.MileageOption}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            MileageOption: value,
+                                            Mileage: value !== 'other' ? value : prev.CustomMileage,
+                                        }));
+                                        if (errors.MileageOption) {
+                                            setErrors(prev => ({ ...prev, MileageOption: '' }));
+                                        }
+                                    }}
+                                    options={mileageOptions}
+                                    placeholder="เลือกระยะทาง"
+                                    error={errors.MileageOption}
+                                    required
+                                />
+                            )}
                         </div>
-                        {formData.MileageOption === 'other' && (
+                        {formData.IsCheckMileage && formData.MileageOption === 'other' && (
                             <div className="md:w-1/2">
                                 <Input
                                     label="ระบุระยะ (กิโลเมตร)"

@@ -19,9 +19,11 @@ export async function middleware(request: NextRequest) {
 
     // Allow public routes
     if (isPublicRoute) {
-        // Redirect to dashboard if already logged in
+        // Redirect to dashboard/bookings if already logged in
         if (token && pathname === '/auth/login') {
-            const redirectUrl = token.role === 'ADMIN' ? '/admin/overview' : '/service-center/dashboard';
+            const redirectUrl = token.role === 'ADMIN' 
+                ? '/admin/overview' 
+                : (token.role === 'CS' ? '/service-center/bookings' : '/service-center/dashboard');
             return NextResponse.redirect(new URL(redirectUrl, request.url));
         }
         return NextResponse.next();
@@ -43,15 +45,21 @@ export async function middleware(request: NextRequest) {
     }
 
     if (pathname.startsWith('/service-center')) {
-        // Service center routes allow SERVICE_CENTER and ADMIN roles
-        if (token.role !== 'SERVICE_CENTER' && token.role !== 'ADMIN') {
+        // Service center routes allow SERVICE_CENTER, ADMIN, and CS roles
+        if (token.role !== 'SERVICE_CENTER' && token.role !== 'ADMIN' && token.role !== 'CS') {
             return NextResponse.redirect(new URL('/auth/login', request.url));
+        }
+        // Redirect CS away from the general service dashboard to bookings
+        if (token.role === 'CS' && (pathname === '/service-center/dashboard' || pathname === '/service-center')) {
+            return NextResponse.redirect(new URL('/service-center/bookings', request.url));
         }
     }
 
     // Redirect root to appropriate dashboard
     if (pathname === '/') {
-        const redirectUrl = token.role === 'ADMIN' ? '/admin/overview' : '/service-center/dashboard';
+        const redirectUrl = token.role === 'ADMIN' 
+            ? '/admin/overview' 
+            : (token.role === 'CS' ? '/service-center/bookings' : '/service-center/dashboard');
         return NextResponse.redirect(new URL(redirectUrl, request.url));
     }
 

@@ -4,7 +4,7 @@
 // User & Auth Types
 // ==========================================
 
-export type UserRole = 'ADMIN' | 'SERVICE_CENTER';
+export type UserRole = 'ADMIN' | 'SERVICE_CENTER' | 'CS';
 
 export interface User {
     UserID: number;
@@ -78,6 +78,7 @@ export interface Claim {
     UpdateDate?: Date;
     Branch?: ServiceBranch;
     Creator?: User;
+    Booking?: any[];
     Files?: ClaimFile[];
     Logs?: ClaimLog[];
 }

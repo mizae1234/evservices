@@ -95,4 +95,103 @@ evservices/
    - **วิธีแก้**: นำเทคนิค **Data Chunking** เข้ามาใช้ (ทำ `take` และ `skip` ใน `while` loop จำนวนละไม่เกิน 500-1000 items) ก่อนนำข้อมูลเชื่อมต่อกันใน Memory (`claims = claims.concat(batch)`)
 3. **Client-Side Data Pagination**:
    - สำหรับหน้ารายงานตัวเลขสถิติที่จำเป็นต้องประมวลผลหรือหาค่าเฉลี่ยแบบรวมยอดจาก Base Data หลายพันรายการ (เช่น TAT Average) ระบบเลือกจะดึงข้อมูล Array ก้อนใหญ่มาครั้งเดียว
-   - ฟรอนต์เอนด์สร้าง Paginated State ปลอม (`slice( (page-1)*limit, page*limit )`) และมีฟังก์ชันจัดเลขหน้าคลิกดู 5 ลำดับ เพื่อลดภาระการ Render DOM ให้เบาและเสถียรที่สุด โดยไม่ต้องทำ Server-Side Query ใหม่ในทุกๆ ครั้งที่คลิกหน้าถัดไป
+    - ฟรอนต์เอนด์สร้าง Paginated State ปลอม (`slice( (page-1)*limit, page*limit )`) และมีฟังก์ชันจัดเลขหน้าคลิกดู 5 ลำดับ เพื่อลดภาระการ Render DOM ให้เบาและเสถียรที่สุด โดยไม่ต้องทำ Server-Side Query ใหม่ในทุกๆ ครั้งที่คลิกหน้าถัดไป
+
+---
+
+## 7. Bay Booking System (ระบบจองช่องซ่อม)
+
+### 7.1 Database Models (Schema)
+```
+CM_ServiceType       — ประเภทบริการ (MILEAGE_CHECK, MILEAGE_PLUS_REPAIR, GENERAL_REPAIR)
+  - ServiceTypeID, Code, Name, RequiresMileage, SortOrder, IsActive
+
+CM_FlatRate           — ค่าระยะเวลามาตรฐานตามบริการ+ระยะทาง
+  - FlatRateID, ServiceTypeID, MileageID (nullable), DurationMinutes, Description, IsActive
+  - Relations: → CM_ServiceType, → CM_MsMileage (optional)
+
+CM_ServiceBay         — ช่องซ่อม (Bay) ผูกกับสาขา
+  - BayID, BranchID, BayName, IsActive
+  - Relations: → CM_MsServiceBranch
+
+CM_MsMileage          — Master ระยะทาง
+  - MileageID, Value, Label, SortOrder, IsActive
+```
+
+### 7.2 Booking Flow (ขั้นตอนการจอง)
+1. **เลือกประเภทลูกค้า** — `BookingType`: `EV7` | `RETAIL` | `LINEMAN`
+2. **เลือกประเภทบริการ** — `CM_ServiceType` (เช็คระยะ/เช็คระยะ+ซ่อม/ซ่อมทั่วไป)
+3. **เลือกระยะทาง** (ถ้า `RequiresMileage = true`) — ดึงจาก `CM_MsMileage`
+4. **คำนวณเวลาอัตโนมัติ** — Lookup `CM_FlatRate` ด้วย `ServiceTypeID + MileageID` → ได้ `DurationMinutes`
+5. **กรอกข้อมูลลูกค้า** — ทะเบียนรถ (ค้นหาจาก API ถ้าเป็น EV7/LINEMAN), ชื่อ, รุ่นรถ, VIN
+6. **ยืนยันจอง** → POST `/api/bookings`
+
+### 7.3 Vehicle Lookup API
+- **Endpoint**: `GET /api/vehicles/lookup?q=<ทะเบียน>`
+- **Logic**: เมื่อ `BookingType` เป็น `EV7` หรือ `LINEMAN` → พิมพ์ทะเบียนอย่างน้อย 2 ตัวอักษร → ดึง suggestion
+- **ถ้า `RETAIL`**: ข้าม lookup, ให้กรอกเอง
+- **Auto-fill**: เลือก suggestion → fill ชื่อลูกค้า, รุ่นรถ, VIN, InventoryItemID
+
+### 7.4 Auto-Approval Logic
+- **เช็คระยะเท่านั้น** (`MILEAGE_CHECK`): Auto-approve → สาขาหรือผู้จัดการอนุมัติได้เลย
+- **เช็คระยะ+ซ่อม / ซ่อมทั่วไป**: ต้องรอผู้จัดการสาขาอนุมัติ
+
+### 7.5 Role-based Access
+| Feature | ADMIN | SERVICE_CENTER | CS |
+|---------|-------|---------------|-----|
+| Bay Calendar | ✅ เลือกสาขาได้ | ✅ เฉพาะสาขาตัวเอง | ✅ ข้ามสาขา |
+| ปุ่มตั้งค่า | ✅ | ✅ | ❌ ซ่อน |
+| Bay Management | ✅ | ✅ | ❌ |
+| Flat Rate Settings | ✅ | ❌ | ❌ |
+| สร้าง Booking | ✅ | ✅ | ✅ |
+
+### 7.6 Key Pages & Components
+```
+Pages:
+  /service-center/bookings/bay-calendar/page.tsx    — ปฏิทิน Bay แสดง slot ว่าง/จอง
+  /service-center/bookings/bay-booking/page.tsx     — หน้าจองเต็มหน้า (step form)
+  /service-center/bookings/bay-management/page.tsx  — จัดการ Bay (CRUD)
+  /service-center/bookings/settings/page.tsx        — ตั้งค่า booking (วันหยุด, เวลาเปิด-ปิด)
+  /admin/flat-rates/page.tsx                        — จัดการ Flat Rate
+
+APIs:
+  /api/service-types          — GET: ดึงประเภทบริการ
+  /api/flat-rates             — GET/POST: ดึง/สร้าง Flat Rate
+  /api/flat-rates/[id]        — PUT/DELETE: แก้ไข/ลบ
+  /api/service-bays           — GET/POST: ดึง/สร้าง Bay
+  /api/service-bays/[id]      — PUT/DELETE: แก้ไข/ลบ
+  /api/mileages               — GET: ดึง Master ระยะทาง
+  /api/vehicles/lookup        — GET: ค้นหาทะเบียนรถ
+  /api/bookings/bay-availability — GET: ดึง booking ของ bay ตามวัน
+
+Components:
+  /components/bookings/BayBookingModal.tsx  — Modal จอง (deprecated, ใช้หน้าเต็มแทน)
+```
+
+### 7.7 Bay Calendar Slot Click Flow
+```
+คลิกช่องว่างบน Bay Calendar
+  → redirect ไป /service-center/bookings/bay-booking
+  → query params: bayId, bayName, branchId, date, startTime
+  → หน้า bay-booking อ่าน params แล้ว pre-fill
+```
+
+### 7.8 Overlap Detection (ตรวจเวลาซ้อน)
+```typescript
+// สูตร: start1 < end2 && start2 < end1
+const isOverlap = (s1: string, e1: string, s2: string, e2: string) => {
+    return timeToMinutes(s1) < timeToMinutes(e2) && timeToMinutes(s2) < timeToMinutes(e1);
+};
+```
+
+### 7.9 Seed Script
+- **File**: `prisma/setup-bay-booking.ts`
+- **สร้าง**: CM_ServiceType (3 รายการ), CM_FlatRate (Mileage-based + General), CM_ServiceBay (3 bays)
+- ⚠️ **ห้ามรัน seed ซ้ำ** — production DB, จะเกิด duplicate
+
+### 7.10 BookingType Values
+| Value | Label | Icon | สี | Vehicle Lookup |
+|-------|-------|------|-----|---------------|
+| `EV7` | EV7 (รถ Taxi) | 🚕 | blue | ✅ ค้นหาอัตโนมัติ |
+| `RETAIL` | Retail (ลูกค้าทั่วไป) | 🚗 | emerald | ❌ กรอกเอง |
+| `LINEMAN` | Lineman | 🛵 | green | ✅ ค้นหาอัตโนมัติ |

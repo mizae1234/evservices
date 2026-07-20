@@ -27,6 +27,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             where: { ClaimID: claimId, IsActive: true },
             include: {
                 Branch: true,
+                Booking: true,
                 Creator: {
                     select: { FullName: true, Email: true },
                 },
@@ -147,7 +148,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 LastMileage: parseInt(LastMileage) || 0,
                 ServiceDate: ServiceDate ? new Date(ServiceDate) : undefined,
                 Status: newStatus,
-                BranchID: (session.user.role === 'ADMIN' && body.BranchID) ? parseInt(body.BranchID) : undefined,
+                BranchID: ((session.user.role === 'ADMIN' || session.user.role === 'CS') && body.BranchID) ? parseInt(body.BranchID) : undefined,
                 UpdateBy: user!.UserID,
             },
         });

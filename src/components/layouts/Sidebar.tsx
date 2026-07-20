@@ -23,6 +23,10 @@ import {
     Clock,
     Menu,
     X,
+    Calendar,
+    Layers,
+    Settings,
+    Wrench,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -38,6 +42,24 @@ const menuItems: MenuItem[] = [
         label: 'Dashboard',
         href: '/service-center/dashboard',
         icon: <LayoutDashboard className="w-5 h-5" />,
+        roles: ['SERVICE_CENTER', 'ADMIN'],
+    },
+    {
+        label: 'จัดการคิวเช็คระยะ',
+        href: '/service-center/bookings',
+        icon: <Calendar className="w-5 h-5" />,
+        roles: ['SERVICE_CENTER', 'ADMIN', 'CS'],
+    },
+    {
+        label: 'Bay Calendar',
+        href: '/service-center/bookings/bay-calendar',
+        icon: <Layers className="w-5 h-5" />,
+        roles: ['SERVICE_CENTER', 'ADMIN', 'CS'],
+    },
+    {
+        label: 'จัดการ Bay',
+        href: '/service-center/bookings/bay-management',
+        icon: <Wrench className="w-5 h-5" />,
         roles: ['SERVICE_CENTER', 'ADMIN'],
     },
     {
@@ -84,6 +106,12 @@ const menuItems: MenuItem[] = [
         roles: ['ADMIN'],
     },
     {
+        label: 'จัดการ Flat Rate',
+        href: '/admin/flat-rates',
+        icon: <Settings className="w-5 h-5" />,
+        roles: ['ADMIN'],
+    },
+    {
         label: 'จัดการผู้ใช้',
         href: '/admin/users',
         icon: <Users className="w-5 h-5" />,
@@ -94,7 +122,7 @@ const menuItems: MenuItem[] = [
         label: 'โปรไฟล์',
         href: '/profile',
         icon: <User className="w-5 h-5" />,
-        roles: ['SERVICE_CENTER', 'ADMIN'],
+        roles: ['SERVICE_CENTER', 'ADMIN', 'CS'],
     },
 ];
 

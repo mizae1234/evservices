@@ -1,0 +1,1177 @@
+'use client';
+
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
+import { Header } from '@/components/layouts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Select } from '@/components/ui/Select';
+import { Badge } from '@/components/ui/Badge';
+import { LoadingPage } from '@/components/ui/Loading';
+import { ChevronLeft, ChevronRight, Calendar, Plus, Settings, Check, X as XIcon, Clock } from 'lucide-react';
+import BayBookingModal from '@/components/bookings/BayBookingModal';
+
+// --- Types ---
+interface BayBooking {
+    BookingID: number;
+    BookingNo: string;
+    StartTime: string;
+    EndTime: string;
+    StartMinutes: number;
+    EndMinutes: number;
+    CustomerName: string;
+    CarRegister: string;
+    CarModel: string;
+    ServiceType: { Code: string; Name: string } | null;
+    Status: number;
+    DurationMinutes: number | null;
+    BayID?: number | null;
+    BookingDate: string;
+}
+
+interface AvailableSlot {
+    StartTime: string;
+    EndTime: string;
+    DurationMinutes: number;
+}
+
+interface BayData {
+    BayID: number;
+    BayName: string;
+    SortOrder: number;
+    Bookings: BayBooking[];
+    AvailableSlots: AvailableSlot[];
+    TotalBookedMinutes: number;
+    TotalAvailableMinutes: number;
+}
+
+interface BranchOption {
+    BranchID: number;
+    BranchName: string;
+}
+
+// --- Constants ---
+const STATUS_CONFIG: Record<number, { label: string; color: string; bgColor: string; borderColor: string }> = {
+    0: { label: 'รออนุมัติ', color: 'text-amber-700', bgColor: 'bg-amber-50', borderColor: 'border-amber-300' },
+    1: { label: 'อนุมัติ', color: 'text-emerald-700', bgColor: 'bg-emerald-50', borderColor: 'border-emerald-300' },
+    2: { label: 'ปฏิเสธ', color: 'text-red-700', bgColor: 'bg-red-50', borderColor: 'border-red-300' },
+    3: { label: 'สร้าง Claim', color: 'text-blue-700', bgColor: 'bg-blue-50', borderColor: 'border-blue-300' },
+    4: { label: 'ยกเลิก', color: 'text-gray-500', bgColor: 'bg-gray-50', borderColor: 'border-gray-300' },
+};
+
+const SLOT_WIDTH = 80; // px per 30-min slot
+const BAY_LABEL_WIDTH = 120; // px for bay name column
+
+function timeToMinutes(t: string): number {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+}
+
+function minutesToTime(m: number): string {
+    const h = Math.floor(m / 60);
+    const min = m % 60;
+    return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+}
+
+function formatThaiDate(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const thaiMonths = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    const thaiDays = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+    return `${thaiDays[date.getDay()]} ${d} ${thaiMonths[m - 1]} ${y + 543}`;
+}
+
+function BayCalendarPageInner() {
+    const { data: session } = useSession();
+    const searchParams = useSearchParams();
+    const paramDate = searchParams.get('date');
+    const paramBranchId = searchParams.get('branchId');
+    const [isLoading, setIsLoading] = useState(true);
+    const [selectedDate, setSelectedDate] = useState(() => paramDate || new Date().toISOString().split('T')[0]);
+    const [selectedBranch, setSelectedBranch] = useState(paramBranchId || '');
+    const [branches, setBranches] = useState<BranchOption[]>([]);
+    const [bays, setBays] = useState<BayData[]>([]);
+    const [operatingHours, setOperatingHours] = useState({ openTime: '08:00', closeTime: '17:30' });
+    const [isClosed, setIsClosed] = useState(false);
+    const [closedReason, setClosedReason] = useState('');
+    const [noBaysMessage, setNoBaysMessage] = useState('');
+
+    // Booking detail modal
+    const [selectedBooking, setSelectedBooking] = useState<BayBooking | null>(null);
+    const [selectedBayName, setSelectedBayName] = useState('');
+    const [isApproving, setIsApproving] = useState(false);
+
+    // Reschedule & Logs states
+    const [bookingLogs, setBookingLogs] = useState<any[]>([]);
+    const [activeTab, setActiveTab] = useState<'detail' | 'logs'>('detail');
+    const [isRescheduling, setIsRescheduling] = useState(false);
+    const [rescheduleDate, setRescheduleDate] = useState('');
+    const [rescheduleHour, setRescheduleHour] = useState('08');
+    const [rescheduleMin, setRescheduleMin] = useState('00');
+    const [rescheduleReason, setRescheduleReason] = useState('');
+    const [rescheduleError, setRescheduleError] = useState('');
+    const [rescheduleBayId, setRescheduleBayId] = useState('');
+    const [rescheduleBays, setRescheduleBays] = useState<BayData[]>([]);
+    const [isRescheduleDateClosed, setIsRescheduleDateClosed] = useState(false);
+    const [rescheduleDateClosedReason, setRescheduleDateClosedReason] = useState('');
+    const [isTogglingClosed, setIsTogglingClosed] = useState(false);
+
+    // Booking modal state
+    const [bookingModal, setBookingModal] = useState<{ bayId: number; bayName: string; startTime: string } | null>(null);
+
+    // Load branches
+    useEffect(() => {
+        async function loadBranches() {
+            try {
+                const res = await fetch('/api/branches');
+                const data = await res.json();
+                if (data.success) {
+                    setBranches(data.data);
+                    // Only set default branch if not already set from query params
+                    if (!selectedBranch) {
+                        if (session?.user?.role === 'SERVICE_CENTER' && session?.user?.branchId) {
+                            setSelectedBranch(session.user.branchId.toString());
+                        } else if (data.data.length > 0) {
+                            setSelectedBranch(data.data[0].BranchID.toString());
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading branches:', err);
+            }
+        }
+        loadBranches();
+    }, [session]);
+
+    // Load bay availability
+    const loadBayAvailability = useCallback(async () => {
+        if (!selectedBranch || !selectedDate) return;
+        setIsLoading(true);
+        try {
+            const res = await fetch(`/api/bookings/bay-availability?branchId=${selectedBranch}&date=${selectedDate}`);
+            const data = await res.json();
+            if (data.success) {
+                setIsClosed(data.isClosed || false);
+                setClosedReason(data.reason || '');
+                setBays(data.data || []);
+                setNoBaysMessage(data.message || '');
+                if (data.operatingHours) {
+                    setOperatingHours(data.operatingHours);
+                }
+            }
+        } catch (err) {
+            console.error('Error loading bay availability:', err);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [selectedBranch, selectedDate]);
+
+    useEffect(() => {
+        if (selectedBranch) {
+            loadBayAvailability();
+        }
+    }, [selectedBranch, selectedDate, loadBayAvailability]);
+
+    // Fetch bay availability for rescheduleDate
+    useEffect(() => {
+        if (!isRescheduling || !selectedBranch || !rescheduleDate) {
+            setRescheduleBays([]);
+            setIsRescheduleDateClosed(false);
+            setRescheduleDateClosedReason('');
+            return;
+        }
+        let active = true;
+        async function loadRescheduleBays() {
+            try {
+                const res = await fetch(`/api/bookings/bay-availability?branchId=${selectedBranch}&date=${rescheduleDate}`);
+                const data = await res.json();
+                if (data.success && active) {
+                    setRescheduleBays(data.data || []);
+                    setIsRescheduleDateClosed(data.isClosed || false);
+                    setRescheduleDateClosedReason(data.reason || '');
+                }
+            } catch (err) {
+                console.error('Error loading reschedule bay availability:', err);
+            }
+        }
+        loadRescheduleBays();
+        return () => {
+            active = false;
+        };
+    }, [isRescheduling, selectedBranch, rescheduleDate]);
+
+    const paramBookingId = searchParams.get('bookingId');
+
+    useEffect(() => {
+        if (!paramBookingId) return;
+        async function fetchAndOpenBooking() {
+            try {
+                const res = await fetch(`/api/bookings/${paramBookingId}`);
+                const data = await res.json();
+                if (data.success) {
+                    const booking = data.data;
+                    const bayName = booking.Bay?.BayName || 'ไม่ระบุช่องซ่อม';
+                    setSelectedBooking(booking);
+                    setSelectedBayName(bayName);
+                    setActiveTab('detail');
+                    setIsRescheduling(true);
+                    setRescheduleDate(booking.BookingDate.split('T')[0]);
+                    setRescheduleHour(booking.StartTime.split(':')[0]);
+                    setRescheduleMin(booking.StartTime.split(':')[1]);
+                    setRescheduleBayId(booking.BayID?.toString() || '');
+                    setRescheduleReason('');
+                    setRescheduleError('');
+                    setBookingLogs(booking.Logs || []);
+                }
+            } catch (err) {
+                console.error('Error fetching booking for reschedule redirect:', err);
+            }
+        }
+        fetchAndOpenBooking();
+    }, [paramBookingId, searchParams]);
+
+    // Date navigation
+    const goToDate = (offset: number) => {
+        const d = new Date(selectedDate);
+        d.setDate(d.getDate() + offset);
+        setSelectedDate(d.toISOString().split('T')[0]);
+    };
+
+    const goToToday = () => {
+        setSelectedDate(new Date().toISOString().split('T')[0]);
+    };
+
+    // Generate time slots for header
+    const openMin = timeToMinutes(operatingHours.openTime);
+    const closeMin = timeToMinutes(operatingHours.closeTime);
+    const timeSlots: string[] = [];
+    for (let m = openMin; m < closeMin; m += 30) {
+        const h = Math.floor(m / 60);
+        const min = m % 60;
+        timeSlots.push(`${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`);
+    }
+    const totalGridWidth = timeSlots.length * SLOT_WIDTH;
+
+    // Handle booking click
+    const handleBookingClick = async (booking: BayBooking, bayName: string) => {
+        setSelectedBooking(booking);
+        setSelectedBayName(bayName);
+        setActiveTab('detail');
+        setIsRescheduling(false);
+        setRescheduleDate(selectedDate);
+        setRescheduleHour(booking.StartTime.split(':')[0]);
+        setRescheduleMin(booking.StartTime.split(':')[1]);
+        setRescheduleBayId(booking.BayID?.toString() || '');
+        setRescheduleReason('');
+        setRescheduleError('');
+        setBookingLogs([]);
+        
+        try {
+            const res = await fetch(`/api/bookings/${booking.BookingID}`);
+            const data = await res.json();
+            if (data.success) {
+                setBookingLogs(data.data.Logs || []);
+            }
+        } catch (err) {
+            console.error('Error loading booking logs:', err);
+        }
+    };
+
+    // Handle Save Reschedule
+    const handleSaveReschedule = async () => {
+        if (!selectedBooking) return;
+        setRescheduleError('');
+
+        if (!rescheduleDate) {
+            setRescheduleError('กรุณาเลือกวันที่ใหม่');
+            return;
+        }
+        if (!rescheduleReason.trim()) {
+            setRescheduleError('กรุณาระบุเหตุผลการเลื่อนคิว');
+            return;
+        }
+
+        const duration = selectedBooking.DurationMinutes || 120;
+        const startM = timeToMinutes(`${rescheduleHour}:${rescheduleMin}`);
+        const lunchStart = 12 * 60;
+        let endM = startM + duration;
+        if (startM < lunchStart && endM > lunchStart) {
+            endM += 60; // Add 60 mins for lunch break
+        }
+        const computedEndTime = minutesToTime(endM);
+
+        setIsApproving(true);
+        try {
+            const res = await fetch(`/api/bookings/${selectedBooking.BookingID}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    BookingDate: rescheduleDate,
+                    StartTime: `${rescheduleHour}:${rescheduleMin}`,
+                    EndTime: computedEndTime,
+                    RescheduleReason: rescheduleReason.trim(),
+                    BayID: rescheduleBayId ? parseInt(rescheduleBayId) : null,
+                }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setSelectedBooking(null);
+                loadBayAvailability();
+            } else {
+                setRescheduleError(data.error || 'เกิดข้อผิดพลาดในการเลื่อนคิว');
+            }
+        } catch (err) {
+            console.error('Error rescheduling booking:', err);
+            setRescheduleError('เกิดข้อผิดพลาดระบบ');
+        } finally {
+            setIsApproving(false);
+        }
+    };
+
+    // Handle approve/reject
+    const handleApprove = async () => {
+        if (!selectedBooking) return;
+        setIsApproving(true);
+        try {
+            const res = await fetch(`/api/bookings/${selectedBooking.BookingID}/approve`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                setSelectedBooking(null);
+                loadBayAvailability();
+            } else {
+                alert(data.error || 'เกิดข้อผิดพลาด');
+            }
+        } catch {
+            alert('เกิดข้อผิดพลาดในการอนุมัติ');
+        } finally {
+            setIsApproving(false);
+        }
+    };
+
+    const handleReject = async () => {
+        if (!selectedBooking) return;
+        const reason = prompt('ระบุเหตุผลในการปฏิเสธ (ถ้ามี):');
+        setIsApproving(true);
+        try {
+            const res = await fetch(`/api/bookings/${selectedBooking.BookingID}/reject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setSelectedBooking(null);
+                loadBayAvailability();
+            } else {
+                alert(data.error || 'เกิดข้อผิดพลาด');
+            }
+        } catch {
+            alert('เกิดข้อผิดพลาดในการปฏิเสธ');
+        } finally {
+            setIsApproving(false);
+        }
+    };
+
+    // Navigate to full-page booking form
+    const handleSlotClick = (bayId: number, bayName: string, startTime: string) => {
+        const params = new URLSearchParams({
+            bayId: bayId.toString(),
+            bayName,
+            branchId: selectedBranch,
+            date: selectedDate,
+            startTime,
+        });
+        window.location.href = `/service-center/bookings/bay-booking?${params.toString()}`;
+    };
+
+    const handleBookingDragStart = (e: React.DragEvent, booking: BayBooking) => {
+        e.dataTransfer.setData('text/plain', booking.BookingID.toString());
+        e.dataTransfer.setData('bookingDuration', (booking.DurationMinutes || 120).toString());
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleTimelineDrop = async (e: React.DragEvent, targetBayId: number, targetBayName: string) => {
+        e.preventDefault();
+        const bookingIdStr = e.dataTransfer.getData('text/plain');
+        if (!bookingIdStr) return;
+        const bookingId = parseInt(bookingIdStr);
+
+        let foundBooking: BayBooking | null = null;
+        for (const b of bays) {
+            const found = b.Bookings.find(bk => bk.BookingID === bookingId);
+            if (found) {
+                foundBooking = found;
+                break;
+            }
+        }
+        if (!foundBooking) return;
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const totalWidth = rect.width;
+        const totalMinutes = closeMin - openMin;
+
+        const clickMinutes = (clickX / totalWidth) * totalMinutes;
+        const absoluteMinutes = openMin + clickMinutes;
+
+        // Round to nearest 30 mins
+        const roundedMinutes = Math.round(absoluteMinutes / 30) * 30;
+        
+        // Boundary check
+        const duration = foundBooking.DurationMinutes || 120;
+        const finalStartMinutes = Math.max(openMin, Math.min(roundedMinutes, closeMin - duration));
+        
+        const newStartTime = minutesToTime(finalStartMinutes);
+        const newHour = newStartTime.split(':')[0];
+        const newMin = newStartTime.split(':')[1];
+
+        setSelectedBooking(foundBooking);
+        setSelectedBayName(targetBayName);
+        setRescheduleBayId(targetBayId.toString());
+        setRescheduleDate(selectedDate);
+        setRescheduleHour(newHour);
+        setRescheduleMin(newMin);
+        setIsRescheduling(true);
+        setActiveTab('detail');
+        setRescheduleReason('');
+        setRescheduleError('');
+        setBookingLogs([]);
+        
+        try {
+            const res = await fetch(`/api/bookings/${bookingId}`);
+            const data = await res.json();
+            if (data.success) {
+                setBookingLogs(data.data.Logs || []);
+            }
+        } catch (err) {
+            console.error('Error loading booking logs during drag-drop:', err);
+        }
+    };
+
+    const handleToggleBranchClosed = async () => {
+        if (!selectedBranch) return;
+        setIsTogglingClosed(true);
+        try {
+            if (isClosed) {
+                // Fetch holidays to find the HolidayID
+                const resList = await fetch(`/api/bookings/holidays?branchId=${selectedBranch}`);
+                const dataList = await resList.json();
+                if (dataList.success) {
+                    const targetDateStr = selectedDate;
+                    const foundHoliday = dataList.data.find((h: any) => h.HolidayDate.startsWith(targetDateStr));
+                    if (foundHoliday) {
+                        const resDel = await fetch(`/api/bookings/holidays?holidayId=${foundHoliday.HolidayID}`, {
+                            method: 'DELETE',
+                        });
+                        const dataDel = await resDel.json();
+                        if (dataDel.success) {
+                            alert('เปิดรับคิวตามปกติเรียบร้อยแล้ว');
+                            loadBayAvailability();
+                        } else {
+                            alert(dataDel.error || 'เกิดข้อผิดพลาดในการเปิดรับคิว');
+                        }
+                    } else {
+                        alert('ไม่สามารถเปิดรับคิวในวันหยุดประจำสัปดาห์ได้ (กรุณาแก้ไขการตั้งค่าวันทำงานสาขา)');
+                    }
+                }
+            } else {
+                const reason = prompt('กรุณาระบุเหตุผลในการปิดรับคิววันนี้ (เช่น พนักงานลา หรือ ปิดทำการชั่วคราว):');
+                if (reason === null) {
+                    setIsTogglingClosed(false);
+                    return;
+                }
+                const finalReason = reason.trim() || 'ปิดรับคิวประจำวัน';
+                const resPost = await fetch('/api/bookings/holidays', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        branchId: selectedBranch,
+                        date: selectedDate,
+                        description: finalReason,
+                    }),
+                });
+                const dataPost = await resPost.json();
+                if (dataPost.success) {
+                    alert('ปิดรับคิวสำหรับวันนี้เรียบร้อยแล้ว');
+                    loadBayAvailability();
+                } else {
+                    alert(dataPost.error || 'เกิดข้อผิดพลาดในการปิดรับคิว');
+                }
+            }
+        } catch (err) {
+            console.error('Error toggling branch closed status:', err);
+            alert('เกิดข้อผิดพลาดในการทำรายการ');
+        } finally {
+            setIsTogglingClosed(false);
+        }
+    };
+
+    const handleToggleBayClose = async (bayId: number, bayName: string, isBlocked: boolean, blockBookingId?: number) => {
+        if (!selectedBranch) return;
+        try {
+            if (isBlocked && blockBookingId) {
+                if (!confirm(`ต้องการเปิดให้บริการ ${bayName} ตามปกติใช่หรือไม่?`)) return;
+                const res = await fetch(`/api/bookings/${blockBookingId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 2 }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`เปิดให้บริการ ${bayName} ตามปกติเรียบร้อยแล้ว`);
+                    loadBayAvailability();
+                } else {
+                    alert(data.error || 'เกิดข้อผิดพลาดในการเปิดช่องซ่อม');
+                }
+            } else {
+                const reason = prompt(`กรุณาระบุสาเหตุที่ปิด ${bayName} วันนี้ (เช่น ช่างลา, ปรับปรุงเครื่องมือ):`);
+                if (reason === null) return;
+                const finalReason = reason.trim() || 'งดให้บริการช่องซ่อมชั่วคราว';
+                const res = await fetch('/api/bookings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        BookingDate: selectedDate,
+                        StartTime: '08:00',
+                        EndTime: '17:30',
+                        CustomerName: '[ปิดช่องซ่อมชั่วคราว]',
+                        CarRegister: 'BLOCK',
+                        CarModel: finalReason,
+                        BranchID: selectedBranch,
+                        BayID: bayId,
+                        ServiceTypeID: null,
+                        DurationMinutes: 570,
+                        LastMileage: 0,
+                        ClaimDetail: finalReason,
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`ปิดบริการ ${bayName} เรียบร้อยแล้ว`);
+                    loadBayAvailability();
+                } else {
+                    alert(data.error || 'เกิดข้อผิดพลาดในการปิดช่องซ่อม');
+                }
+            }
+        } catch (err) {
+            console.error('Error toggling bay close status:', err);
+            alert('เกิดข้อผิดพลาดในการทำรายการ');
+        }
+    };
+
+    if (isLoading && !bays.length) {
+        return <LoadingPage />;
+    }
+
+    return (
+        <>
+            <Header title="Bay Calendar" subtitle="ตารางจอง Service Bay (แบบห้องประชุม)" />
+
+            <div className="p-4 lg:p-6 space-y-4">
+                {/* Controls Bar */}
+                <Card>
+                    <CardContent className="p-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                            {/* Branch selector (admin only) */}
+                            {(session?.user?.role === 'ADMIN' || session?.user?.role === 'CS') && (
+                                <div className="w-60">
+                                    <Select
+                                        value={selectedBranch}
+                                        onChange={(e) => setSelectedBranch(e.target.value)}
+                                        options={branches.map(b => ({ value: b.BranchID.toString(), label: b.BranchName }))}
+                                        placeholder="เลือกสาขา"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Date Navigation */}
+                            <div className="flex items-center gap-1 bg-gray-100 rounded-lg px-2 py-1">
+                                <button onClick={() => goToDate(-1)} className="p-1.5 hover:bg-gray-300 rounded transition-colors text-gray-700">
+                                    <ChevronLeft className="w-5 h-5" />
+                                </button>
+                                <button
+                                    onClick={goToToday}
+                                    className="px-3 py-1 text-sm font-semibold text-blue-700 hover:bg-blue-100 rounded transition-colors"
+                                >
+                                    วันนี้
+                                </button>
+                                <button onClick={() => goToDate(1)} className="p-1.5 hover:bg-gray-300 rounded transition-colors text-gray-700">
+                                    <ChevronRight className="w-5 h-5" />
+                                </button>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <Calendar className="w-5 h-5 text-gray-600" />
+                                <input
+                                    type="date"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                    className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-800 font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                <span className="text-sm font-semibold text-gray-900">
+                                    {formatThaiDate(selectedDate)}
+                                </span>
+                            </div>
+
+                            <div className="flex-1" />
+
+                            {/* Quick Actions */}
+                            {(session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') && (
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        variant={isClosed ? "outline" : "danger"}
+                                        size="sm"
+                                        onClick={handleToggleBranchClosed}
+                                        disabled={isTogglingClosed}
+                                        className={isClosed ? "border-emerald-500 text-emerald-700 hover:bg-emerald-50 bg-white font-bold" : "bg-red-600 hover:bg-red-700 text-white font-bold"}
+                                    >
+                                        {isTogglingClosed ? (
+                                            "กำลังบันทึก..."
+                                        ) : isClosed ? (
+                                            "🔓 เปิดรับคิวปกติ"
+                                        ) : (
+                                            "🔒 ปิดรับคิววันนี้"
+                                        )}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => window.location.href = '/service-center/bookings/settings'}
+                                    >
+                                        <Settings className="w-4 h-4 mr-1" />
+                                        ตั้งค่า
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Status Legend */}
+                <div className="flex flex-wrap items-center gap-4 text-xs">
+                    {Object.entries(STATUS_CONFIG).map(([status, config]) => (
+                        <div key={status} className="flex items-center gap-1.5">
+                            <div className={`w-3.5 h-3.5 rounded ${config.bgColor} border ${config.borderColor}`} />
+                            <span className="text-gray-800 font-medium">{config.label}</span>
+                        </div>
+                    ))}
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-3.5 h-3.5 rounded bg-white border border-dashed border-gray-400" />
+                        <span className="text-gray-800 font-medium">ว่าง (คลิกเพื่อจอง)</span>
+                    </div>
+                </div>
+
+                {isClosed && (
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 font-bold flex items-center gap-2 mb-2">
+                        <span>🔴</span>
+                        <span>ปิดรับคิวเพิ่มเติมสำหรับวันนี้เนื่องจาก: <strong>{closedReason}</strong> (ยังคงจัดการคิวเดิมที่ค้างอยู่ได้ แต่จะไม่เปิดให้จองคิวใหม่เพิ่ม)</span>
+                    </div>
+                )}
+
+                {/* Bay Calendar Grid */}
+                {noBaysMessage && bays.length === 0 ? (
+                    <Card>
+                        <CardContent className="p-12 text-center">
+                            <div className="text-6xl mb-4">🔧</div>
+                            <h3 className="text-lg font-semibold text-gray-700 mb-2">{noBaysMessage}</h3>
+                            <p className="text-gray-500 mb-4">กรุณาตั้งค่า Service Bay ที่หน้าตั้งค่าก่อน</p>
+                            <Button onClick={() => window.location.href = '/service-center/bookings/settings'}>
+                                <Settings className="w-4 h-4 mr-1" />
+                                ไปหน้าตั้งค่า
+                            </Button>
+                        </CardContent>
+                    </Card>
+                ) : (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Clock className="w-5 h-5 text-blue-600" />
+                                {formatThaiDate(selectedDate)}
+                                <span className="text-sm font-normal text-gray-500">
+                                    ({operatingHours.openTime} - {operatingHours.closeTime})
+                                </span>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <div style={{ minWidth: BAY_LABEL_WIDTH + totalGridWidth + 20 }}>
+                                    {/* Time Header */}
+                                    <div className="flex border-b border-gray-200 bg-gray-50 sticky top-0 z-10">
+                                        <div className="shrink-0 border-r border-gray-200 px-3 py-2 font-semibold text-xs text-gray-500 uppercase"
+                                            style={{ width: BAY_LABEL_WIDTH }}
+                                        >
+                                            Bay
+                                        </div>
+                                        <div className="flex">
+                                            {timeSlots.map((time, i) => (
+                                                <div
+                                                    key={time}
+                                                    className={`shrink-0 text-center text-xs font-medium text-gray-500 py-2 border-r border-gray-100 ${i % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
+                                                    style={{ width: SLOT_WIDTH }}
+                                                >
+                                                    {time}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Bay Rows */}
+                                    {bays.map((bay) => (
+                                        <BayRow
+                                            key={bay.BayID}
+                                            bay={bay}
+                                            timeSlots={timeSlots}
+                                            openMin={openMin}
+                                            closeMin={closeMin}
+                                            onBookingClick={(b) => handleBookingClick(b, bay.BayName)}
+                                            onSlotClick={(startTime) => handleSlotClick(bay.BayID, bay.BayName, startTime)}
+                                            onBookingDragStart={handleBookingDragStart}
+                                            onTimelineDrop={handleTimelineDrop}
+                                            onToggleBayClose={session?.user?.role === 'CS' ? undefined : handleToggleBayClose}
+                                            isClosed={isClosed}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+            </div>
+
+            {/* Booking Detail Modal */}
+            {selectedBooking && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedBooking(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className={`px-6 py-4 ${selectedBooking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' ? 'bg-red-50' : STATUS_CONFIG[selectedBooking.Status]?.bgColor || 'bg-gray-50'}`}>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="font-bold text-gray-900">{selectedBooking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' ? 'ระบบล็อกช่องซ่อม' : selectedBooking.BookingNo}</h3>
+                                    <p className="text-sm text-gray-600 font-semibold">{selectedBayName}</p>
+                                </div>
+                                <Badge variant={selectedBooking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' ? 'danger' : selectedBooking.Status === 1 ? 'success' : selectedBooking.Status === 0 ? 'warning' : 'default'}>
+                                    {selectedBooking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' ? 'งดให้บริการ' : STATUS_CONFIG[selectedBooking.Status]?.label || 'Unknown'}
+                                </Badge>
+                            </div>
+                        </div>
+                        {/* Tab switcher */}
+                        {!isRescheduling && selectedBooking.CustomerName !== '[ปิดช่องซ่อมชั่วคราว]' && (
+                            <div className="flex border-b border-gray-100 bg-gray-50/50">
+                                <button
+                                    onClick={() => setActiveTab('detail')}
+                                    className={`flex-1 py-3 text-center text-sm font-bold border-b-2 transition-all ${
+                                        activeTab === 'detail'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-400 hover:text-gray-600'
+                                    }`}
+                                >
+                                    ข้อมูลทั่วไป
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('logs')}
+                                    className={`flex-1 py-3 text-center text-sm font-bold border-b-2 transition-all ${
+                                        activeTab === 'logs'
+                                            ? 'border-blue-600 text-blue-600'
+                                            : 'border-transparent text-gray-400 hover:text-gray-600'
+                                    }`}
+                                >
+                                    ประวัติ ({bookingLogs.length})
+                                </button>
+                            </div>
+                        )}
+
+                        <div className="px-6 py-5">
+                            {isRescheduling ? (
+                                <div className="space-y-4">
+                                    <h4 className="font-bold text-gray-900 text-sm">เลื่อนคิวนัดหมาย</h4>
+                                    {rescheduleError && (
+                                        <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs font-semibold rounded-lg">
+                                            {rescheduleError}
+                                        </div>
+                                    )}
+                                    <div className="space-y-3">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-700 mb-1">วันที่ใหม่ *</label>
+                                            <input
+                                                type="date"
+                                                value={rescheduleDate}
+                                                onChange={(e) => setRescheduleDate(e.target.value)}
+                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 bg-white"
+                                            />
+                                            {isRescheduleDateClosed && (
+                                                <div className="p-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs font-semibold rounded-lg mt-1">
+                                                    ⚠️ สาขาปิดทำการในวันที่เลือก: {rescheduleDateClosedReason}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-700 mb-1">เวลาเริ่มใหม่ *</label>
+                                            <div className="flex items-center gap-1">
+                                                <select
+                                                    value={rescheduleHour}
+                                                    onChange={(e) => setRescheduleHour(e.target.value)}
+                                                    className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
+                                                >
+                                                    {Array.from({ length: 11 }, (_, i) => {
+                                                        const h = (i + 8).toString().padStart(2, '0');
+                                                        return <option key={h} value={h}>{h}</option>;
+                                                    })}
+                                                </select>
+                                                <span className="text-lg font-bold text-gray-900">:</span>
+                                                <select
+                                                    value={rescheduleMin}
+                                                    onChange={(e) => setRescheduleMin(e.target.value)}
+                                                    className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
+                                                >
+                                                    <option value="00">00</option>
+                                                    <option value="30">30</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-700 mb-1">ช่องซ่อม *</label>
+                                            <select
+                                                value={rescheduleBayId}
+                                                onChange={(e) => setRescheduleBayId(e.target.value)}
+                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
+                                                disabled={isRescheduleDateClosed}
+                                            >
+                                                {((rescheduleBays.length > 0 ? rescheduleBays : bays).length === 0) && selectedBooking.BayID && (
+                                                    <option value={selectedBooking.BayID.toString()}>{selectedBayName}</option>
+                                                )}
+                                                {(rescheduleBays.length > 0 ? rescheduleBays : bays).map(b => {
+                                                    const isBayBlocked = b.Bookings?.some(bk => bk.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' && bk.CarRegister === 'BLOCK');
+                                                    return (
+                                                        <option
+                                                            key={b.BayID}
+                                                            value={b.BayID.toString()}
+                                                            disabled={isBayBlocked}
+                                                            className={isBayBlocked ? "text-gray-400 font-normal" : "text-gray-900 font-bold"}
+                                                        >
+                                                            {b.BayName} {isBayBlocked ? ' (งดให้บริการชั่วคราว)' : ''}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-700 mb-1">เหตุผลการเลื่อน *</label>
+                                            <textarea
+                                                placeholder="กรุณาระบุเหตุผลการเลื่อนคิว..."
+                                                value={rescheduleReason}
+                                                onChange={(e) => setRescheduleReason(e.target.value)}
+                                                rows={2}
+                                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-2 justify-end pt-3">
+                                        <Button variant="outline" size="sm" onClick={() => setIsRescheduling(false)}>
+                                            ยกเลิก
+                                        </Button>
+                                        <Button size="sm" onClick={handleSaveReschedule} disabled={isApproving}>
+                                            บันทึก
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : activeTab === 'detail' ? (
+                                <div className="space-y-4">
+                                    {selectedBooking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' ? (
+                                        <div className="text-center py-4 space-y-3">
+                                            <div className="text-5xl">🚫</div>
+                                            <h4 className="font-bold text-gray-800 text-base">งดให้บริการช่องซ่อมนี้ชั่วคราว</h4>
+                                            <div className="bg-red-50 text-red-750 px-4 py-3 rounded-lg border border-red-200 text-sm font-semibold max-w-sm mx-auto">
+                                                สาเหตุ: {selectedBooking.CarModel}
+                                            </div>
+                                            <p className="text-xs text-gray-500 font-bold">
+                                                ประจำวันที่ {formatThaiDate(selectedDate)} ({selectedBooking.StartTime} - {selectedBooking.EndTime} น.)
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                                <div>
+                                                    <span className="text-gray-700 font-bold text-xs">เวลา</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.StartTime} - {selectedBooking.EndTime} น.</p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-700 font-bold text-xs">ระยะเวลา</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.DurationMinutes ? `${selectedBooking.DurationMinutes} นาที` : '-'}</p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-700 font-bold text-xs">ลูกค้า</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.CustomerName}</p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-700 font-bold text-xs">ทะเบียน</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.CarRegister}</p>
+                                                </div>
+                                                <div className="col-span-2">
+                                                    <span className="text-gray-700 font-bold text-xs">รุ่นรถ</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.CarModel || '-'}</p>
+                                                </div>
+                                                {selectedBooking.ServiceType && (
+                                                    <div className="col-span-2">
+                                                        <span className="text-gray-700 font-bold text-xs">ประเภทบริการ</span>
+                                                        <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.ServiceType.Name}</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {(selectedBooking.Status === 0 || selectedBooking.Status === 1) && (
+                                                <div className="pt-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="w-full text-blue-600 border-blue-200 hover:bg-blue-50 font-bold"
+                                                        onClick={() => setIsRescheduling(true)}
+                                                    >
+                                                        <Clock className="w-4 h-4 mr-1.5" />
+                                                        เลื่อนคิวนัดหมาย
+                                                    </Button>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
+                                    {bookingLogs.length === 0 ? (
+                                        <p className="text-sm text-gray-400 text-center py-8">ไม่มีประวัติการบันทึก</p>
+                                    ) : (
+                                        <div className="relative border-l border-gray-200 ml-3 pl-4 space-y-4">
+                                            {bookingLogs.map((log) => (
+                                                <div key={log.LogID} className="relative">
+                                                    <span className="absolute -left-[22px] top-1.5 flex h-3 w-3 items-center justify-center rounded-full bg-white ring-2 ring-gray-300">
+                                                        <span className={`h-1.5 w-1.5 rounded-full ${
+                                                            log.LogType === 'RESCHEDULE' ? 'bg-amber-500' :
+                                                            log.LogType === 'CANCEL' ? 'bg-red-500' :
+                                                            log.LogType === 'APPROVE' ? 'bg-emerald-500' :
+                                                            log.LogType === 'REJECT' ? 'bg-rose-500' : 'bg-blue-500'
+                                                        }`} />
+                                                    </span>
+                                                    <div className="flex flex-col">
+                                                        <div className="flex items-center justify-between text-[10px] text-gray-400">
+                                                            <span className="font-bold text-gray-600">{log.CreateBy}</span>
+                                                            <span>{new Date(log.CreateDate).toLocaleString('th-TH', { hour12: false })} น.</span>
+                                                        </div>
+                                                        <span className="mt-1 text-xs font-bold text-gray-800 leading-relaxed bg-gray-50 p-2 rounded-lg border border-gray-100 block">
+                                                            {log.Content}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {!isRescheduling && (
+                            <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-2 justify-end">
+                                {selectedBooking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' ? (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-emerald-600 border-emerald-250 hover:bg-emerald-50 font-bold"
+                                        onClick={async () => {
+                                            if (!confirm(`ต้องการเปิดให้บริการ ${selectedBayName} ตามปกติใช่หรือไม่?`)) return;
+                                            try {
+                                                const res = await fetch(`/api/bookings/${selectedBooking.BookingID}`, {
+                                                    method: 'PUT',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ status: 2 }),
+                                                });
+                                                const data = await res.json();
+                                                if (data.success) {
+                                                    alert(`เปิดให้บริการ ${selectedBayName} ตามปกติเรียบร้อยแล้ว`);
+                                                    setSelectedBooking(null);
+                                                    loadBayAvailability();
+                                                } else {
+                                                    alert(data.error || 'เกิดข้อผิดพลาดในการเปิดช่องซ่อม');
+                                                }
+                                            } catch (err) {
+                                                console.error('Error opening bay:', err);
+                                                alert('เกิดข้อผิดพลาด');
+                                            }
+                                        }}
+                                    >
+                                        🔓 เปิดให้บริการตามปกติ
+                                    </Button>
+                                ) : selectedBooking.Status === 0 && activeTab === 'detail' && (session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') ? (
+                                    <>
+                                        <Button variant="outline" size="sm" onClick={handleReject} disabled={isApproving}>
+                                            <XIcon className="w-4 h-4 mr-1" />
+                                            ปฏิเสธ
+                                        </Button>
+                                        <Button size="sm" onClick={handleApprove} disabled={isApproving}>
+                                            <Check className="w-4 h-4 mr-1" />
+                                            อนุมัติ
+                                        </Button>
+                                    </>
+                                ) : null}
+                                <Button variant="ghost" size="sm" onClick={() => setSelectedBooking(null)}>
+                                    ปิด
+                                </Button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Bay Booking Modal */}
+            {bookingModal && (
+                <BayBookingModal
+                    isOpen={!!bookingModal}
+                    onClose={() => setBookingModal(null)}
+                    onSuccess={() => { setBookingModal(null); loadBayAvailability(); }}
+                    bayId={bookingModal.bayId}
+                    bayName={bookingModal.bayName}
+                    branchId={selectedBranch}
+                    date={selectedDate}
+                    startTime={bookingModal.startTime}
+                />
+            )}
+        </>
+    );
+}
+
+// --- Bay Row Component ---
+function BayRow({
+    bay,
+    timeSlots,
+    openMin,
+    closeMin,
+    onBookingClick,
+    onSlotClick,
+    onBookingDragStart,
+    onTimelineDrop,
+    onToggleBayClose,
+    isClosed = false,
+}: {
+    bay: BayData;
+    timeSlots: string[];
+    openMin: number;
+    closeMin: number;
+    onBookingClick: (b: BayBooking) => void;
+    onSlotClick: (startTime: string) => void;
+    onBookingDragStart: (e: React.DragEvent, b: BayBooking) => void;
+    onTimelineDrop: (e: React.DragEvent, targetBayId: number, targetBayName: string) => void;
+    onToggleBayClose?: (bayId: number, bayName: string, isBlocked: boolean, blockBookingId?: number) => void;
+    isClosed?: boolean;
+}) {
+    const totalMinutes = closeMin - openMin;
+    const blockBooking = bay.Bookings.find(b => b.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' && b.CarRegister === 'BLOCK');
+    const isBlocked = !!blockBooking;
+
+    return (
+        <div className="flex border-b border-gray-100 hover:bg-gray-50/50 transition-colors group">
+            {/* Bay Label */}
+            <div className="shrink-0 border-r border-gray-200 px-3 py-3 flex items-center"
+                style={{ width: BAY_LABEL_WIDTH }}
+            >
+                <div>
+                    <p className="font-semibold text-sm text-gray-900">{bay.BayName}</p>
+                    <p className="text-[10px] text-gray-400">
+                        {bay.Bookings.length} จอง | ว่าง {Math.floor(bay.TotalAvailableMinutes / 60)}:{(bay.TotalAvailableMinutes % 60).toString().padStart(2, '0')} ชม.
+                    </p>
+                    {onToggleBayClose && (
+                        <button
+                            type="button"
+                            onClick={() => onToggleBayClose(bay.BayID, bay.BayName, isBlocked, blockBooking?.BookingID)}
+                            className={`text-[10px] font-bold mt-1.5 block hover:underline text-left transition-colors ${
+                                isBlocked ? 'text-emerald-600 hover:text-emerald-700' : 'text-red-500 hover:text-red-600'
+                            }`}
+                        >
+                            {isBlocked ? '🔓 เปิดช่องซ่อม' : '🔒 ปิดช่องซ่อมวันนี้'}
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* Timeline */}
+            <div 
+                className="relative flex-1" 
+                style={{ minHeight: 60 }}
+                onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                }}
+                onDrop={(e) => onTimelineDrop(e, bay.BayID, bay.BayName)}
+            >
+                {/* Grid lines */}
+                <div className="absolute inset-0 flex">
+                    {timeSlots.map((_, i) => (
+                        <div
+                            key={i}
+                            className={`shrink-0 border-r ${i % 2 === 0 ? 'border-gray-100' : 'border-gray-50'}`}
+                            style={{ width: SLOT_WIDTH }}
+                        />
+                    ))}
+                </div>
+
+                {/* Clickable empty slots */}
+                {!isClosed && bay.AvailableSlots.map((slot) => {
+                    const startOff = timeToMinutes(slot.StartTime) - openMin;
+                    const slotWidth = slot.DurationMinutes;
+                    const left = (startOff / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
+                    const width = (slotWidth / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
+
+                    return (
+                        <button
+                            key={`${slot.StartTime}-${slot.EndTime}`}
+                            className="absolute top-1 bottom-1 border border-dashed border-gray-200 rounded hover:border-blue-400 hover:bg-blue-50/50 transition-all cursor-pointer group/slot flex items-center justify-center"
+                            style={{ left, width: Math.max(width, 30) }}
+                            onClick={() => onSlotClick(slot.StartTime)}
+                            title={`ว่าง ${slot.StartTime}-${slot.EndTime} (${slot.DurationMinutes} นาที) — คลิกเพื่อจอง`}
+                        >
+                            <Plus className="w-3.5 h-3.5 text-gray-300 group-hover/slot:text-blue-500 transition-colors" />
+                        </button>
+                    );
+                })}
+
+                {/* Booking blocks */}
+                {bay.Bookings.map((booking) => {
+                    const startOff = booking.StartMinutes - openMin;
+                    const duration = booking.EndMinutes - booking.StartMinutes;
+                    const left = (startOff / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
+                    const width = (duration / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
+                    
+                    const isSystemBlock = booking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]';
+                    const config = isSystemBlock
+                        ? { label: 'งดให้บริการ', color: 'text-red-700', bgColor: 'bg-red-50/70', borderColor: 'border-red-200' }
+                        : (STATUS_CONFIG[booking.Status] || STATUS_CONFIG[0]);
+                    const canDrag = !isSystemBlock && (booking.Status === 0 || booking.Status === 1);
+
+                    return (
+                        <button
+                            key={booking.BookingID}
+                            draggable={canDrag}
+                            onDragStart={(e) => onBookingDragStart(e, booking)}
+                            className={`absolute top-1 bottom-1 ${config.bgColor} border ${config.borderColor} rounded-md px-2 flex items-center gap-1 overflow-hidden cursor-pointer hover:shadow-md transition-shadow text-left select-none ${canDrag ? 'active:cursor-grabbing' : 'cursor-default'}`}
+                            style={{ left, width: Math.max(width, 40) }}
+                            onClick={() => onBookingClick(booking)}
+                            title={isSystemBlock ? `ช่องซ่อมนี้ปิดบริการชั่วคราว: ${booking.CarModel}` : `${booking.BookingNo} | ${booking.CustomerName} | ${booking.StartTime}-${booking.EndTime}${canDrag ? ' (ลากขยับเพื่อเลื่อนคิว)' : ''}`}
+                        >
+                            <div className="min-w-0 flex-1">
+                                <p className={`text-[11px] font-bold ${config.color} truncate`}>
+                                    {isSystemBlock ? '🚫 งดให้บริการชั่วคราว' : (booking.ServiceType?.Name || booking.CarModel)}
+                                </p>
+                                <p className="text-[10px] text-gray-500 truncate">
+                                    {isSystemBlock ? booking.CarModel : `${booking.CustomerName} • ${booking.CarRegister}`}
+                                </p>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
+
+export default function BayCalendarPage() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center text-gray-500">กำลังโหลด...</div>}>
+            <BayCalendarPageInner />
+        </Suspense>
+    );
+}

@@ -50,10 +50,11 @@ export default function EditClaimPage() {
                     InventoryItemID: c.InventoryItemID || null,
                     ClaimDetail: c.ClaimDetail || '',
                     Amount: c.Amount?.toString() || '',
-                    IsCheckMileage: true,
+                    IsCheckMileage: c.IsCheckMileage,
                     Mileage: c.Mileage?.toString() || '',
                     LastMileage: c.LastMileage?.toString() || '',
                     BranchID: c.BranchID?.toString() || '',
+                    BookingType: c.Booking?.[0]?.BookingType || 'EV7',
                 });
             }
         } catch (error) {

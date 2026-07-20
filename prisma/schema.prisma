@@ -1,6 +1,3 @@
-// Prisma Schema for Car Service Claim Management System
-// All tables use CM_ prefix as requested
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,10 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ==========================================
-// Master Data Tables
-// ==========================================
-
 model CM_Role {
   RoleID      Int       @id @default(autoincrement())
   RoleName    String    @db.NVarChar(50)
@@ -22,131 +15,112 @@ model CM_Role {
   IsActive    Boolean   @default(true)
   CreateDate  DateTime  @default(now())
   UpdateDate  DateTime  @updatedAt
-
-  Users CM_User[]
+  Users       CM_User[]
 
   @@map("CM_Role")
 }
 
 model CM_User {
-  UserID       Int       @id @default(autoincrement())
-  Email        String    @unique @db.NVarChar(100)
-  PasswordHash String    @db.NVarChar(255)
-  FullName     String    @db.NVarChar(100)
-  Phone        String?   @db.NVarChar(20)
-  RoleID       Int
-  BranchID     Int?
-  IsActive     Boolean   @default(true)
-  CreateDate   DateTime  @default(now())
-  UpdateDate   DateTime  @updatedAt
-
-  Role   CM_Role           @relation(fields: [RoleID], references: [RoleID], onDelete: NoAction, onUpdate: NoAction)
-  Branch CM_MsServiceBranch? @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
-
-  CreatedClaims  CM_DocClaim[] @relation("ClaimCreator")
-  UpdatedClaims  CM_DocClaim[] @relation("ClaimUpdater")
-  ClaimLogs      CM_ClaimLog[]
+  UserID        Int                 @id @default(autoincrement())
+  Email         String              @unique @db.NVarChar(100)
+  PasswordHash  String              @db.NVarChar(255)
+  FullName      String              @db.NVarChar(100)
+  Phone         String?             @db.NVarChar(20)
+  RoleID        Int
+  BranchID      Int?
+  IsActive      Boolean             @default(true)
+  CreateDate    DateTime            @default(now())
+  UpdateDate    DateTime            @updatedAt
+  ClaimLogs     CM_ClaimLog[]
+  CreatedClaims CM_DocClaim[]       @relation("ClaimCreator")
+  UpdatedClaims CM_DocClaim[]       @relation("ClaimUpdater")
+  Branch        CM_MsServiceBranch? @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
+  Role          CM_Role             @relation(fields: [RoleID], references: [RoleID], onUpdate: NoAction)
 
   @@map("CM_User")
 }
 
 model CM_MsServiceBranch {
-  BranchID    Int       @id @default(autoincrement())
-  BranchCode  String    @unique @db.NVarChar(20)
-  BranchName  String    @db.NVarChar(100)
-  Address     String?   @db.NVarChar(500)
-  Phone       String?   @db.NVarChar(20)
-  IsActive    Boolean   @default(true)
-  CreateDate  DateTime  @default(now())
-  UpdateDate  DateTime  @updatedAt
-
-  Users  CM_User[]
-  Claims CM_DocClaim[]
+  BranchID    Int                   @id @default(autoincrement())
+  BranchCode  String                @unique @db.NVarChar(20)
+  BranchName  String                @db.NVarChar(100)
+  Address     String?               @db.NVarChar(500)
+  Phone       String?               @db.NVarChar(20)
+  IsActive    Boolean               @default(true)
+  CreateDate  DateTime              @default(now())
+  UpdateDate  DateTime              @updatedAt
+  Bookings      CM_Booking[]
+  Holidays      CM_BranchHoliday[]
+  Configs       CM_BranchSlotConfig[]
+  WorkingDays   CM_BranchWorkingDay[]
+  Claims        CM_DocClaim[]
+  Users         CM_User[]
+  SlotOverrides CM_BranchSlotOverride[]
+  ServiceBays   CM_ServiceBay[]
 
   @@map("CM_MsServiceBranch")
 }
 
 model CM_MsCarModel {
-  ModelID     Int       @id @default(autoincrement())
-  ModelCode   String    @unique @db.NVarChar(20)
-  ModelName   String    @db.NVarChar(100)
-  Brand       String?   @db.NVarChar(50)
-  IsActive    Boolean   @default(true)
-  CreateDate  DateTime  @default(now())
-  UpdateDate  DateTime  @updatedAt
+  ModelID    Int      @id @default(autoincrement())
+  ModelCode  String   @unique @db.NVarChar(20)
+  ModelName  String   @db.NVarChar(100)
+  Brand      String?  @db.NVarChar(50)
+  IsActive   Boolean  @default(true)
+  CreateDate DateTime @default(now())
+  UpdateDate DateTime @updatedAt
 
   @@map("CM_MsCarModel")
 }
 
 model CM_MsMileage {
-  MileageID   Int       @id @default(autoincrement())
-  Value       Int                              // ค่าระยะทาง เช่น 5000, 20000
-  Label       String    @db.NVarChar(50)       // ข้อความแสดง เช่น "5,000 กิโลเมตร"
-  SortOrder   Int       @default(0)            // ลำดับการแสดง
-  IsActive    Boolean   @default(true)
-  CreateDate  DateTime  @default(now())
-  UpdateDate  DateTime  @updatedAt
+  MileageID  Int           @id @default(autoincrement())
+  Value      Int
+  Label      String        @db.NVarChar(50)
+  SortOrder  Int           @default(0)
+  IsActive   Boolean       @default(true)
+  CreateDate DateTime      @default(now())
+  UpdateDate DateTime      @updatedAt
+  FlatRates  CM_FlatRate[]
 
   @@map("CM_MsMileage")
 }
 
-// ==========================================
-// Claim Tables
-// ==========================================
-
 model CM_DocClaim {
-  ClaimID       Int       @id @default(autoincrement())
-  ClaimNo       String    @unique @db.NVarChar(50)
-  ClaimDate     DateTime  @default(now())
-  ServiceDate   DateTime?                      // วันที่ลูกค้าเข้ารับบริการ
-  ClaimDetail   String?   @db.NVarChar(Max)
-  Amount        Decimal   @db.Decimal(18, 2)
-  
-  // Branch Reference
-  BranchID      Int
-  
-  // Vehicle Information
-  CarModel      String    @db.NVarChar(100)
-  CarRegister   String    @db.NVarChar(20)
-  VinNo         String?   @db.NVarChar(50)
-  ProjectType   String?   @db.NVarChar(50)   // ประเภทโปรเจค เช่น Owner, Rental
-  InventoryItemID Int?                      // Reference ID จากระบบ Inventory
-  
-  // Customer Information
-  CustomerName  String    @db.NVarChar(100)
-  
-  // Mileage Check
-  IsCheckMileage Boolean  @default(false)
-  Mileage       Int       @default(0)
-  LastMileage   Int       @default(0)
-  
-  // Status: 0=Draft, 1=Pending, 2=Approved, 3=Rejected, 4=NeedInfo
-  Status        Int       @default(0)
-  
-  // Document Information
-  DocUrl        String?   @db.NVarChar(500)
-  DocName       String?   @db.NVarChar(255)
-  S3Path        String?   @db.NVarChar(500)
-  
-  // Approval Information
-  ApprovalNote  String?   @db.NVarChar(Max)
-  ApprovedDate  DateTime?
-  ApprovedBy    Int?
-  
-  // Audit Fields
-  IsActive      Boolean   @default(true)
-  CreateBy      Int
-  CreateDate    DateTime  @default(now())
-  UpdateBy      Int?
-  UpdateDate    DateTime  @updatedAt
-
-  // Relations
-  Branch       CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
-  Creator      CM_User            @relation("ClaimCreator", fields: [CreateBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
-  Updater      CM_User?           @relation("ClaimUpdater", fields: [UpdateBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
-  
-  Files        CM_ClaimFile[]
-  Logs         CM_ClaimLog[]
+  ClaimID         Int                @id @default(autoincrement())
+  ClaimNo         String             @unique @db.NVarChar(50)
+  ClaimDate       DateTime           @default(now())
+  ClaimDetail     String?            @db.NVarChar(Max)
+  Amount          Decimal            @db.Decimal(18, 2)
+  BranchID        Int
+  CarModel        String             @db.NVarChar(100)
+  CarRegister     String             @db.NVarChar(20)
+  CustomerName    String             @db.NVarChar(100)
+  IsCheckMileage  Boolean            @default(false)
+  Mileage         Int                @default(0)
+  LastMileage     Int                @default(0)
+  Status          Int                @default(0)
+  DocUrl          String?            @db.NVarChar(500)
+  DocName         String?            @db.NVarChar(255)
+  S3Path          String?            @db.NVarChar(500)
+  ApprovalNote    String?            @db.NVarChar(Max)
+  ApprovedDate    DateTime?
+  ApprovedBy      Int?
+  IsActive        Boolean            @default(true)
+  CreateBy        Int
+  CreateDate      DateTime           @default(now())
+  UpdateBy        Int?
+  UpdateDate      DateTime           @updatedAt
+  VinNo           String?            @db.NVarChar(50)
+  InventoryItemID Int?
+  ProjectType     String?            @db.NVarChar(50)
+  ServiceDate     DateTime?
+  Booking         CM_Booking[]
+  Files           CM_ClaimFile[]
+  Logs            CM_ClaimLog[]
+  Branch          CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+  Creator         CM_User            @relation("ClaimCreator", fields: [CreateBy], references: [UserID], onUpdate: NoAction)
+  Updater         CM_User?           @relation("ClaimUpdater", fields: [UpdateBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([ClaimNo])
   @@index([Status])
@@ -156,37 +130,188 @@ model CM_DocClaim {
 }
 
 model CM_ClaimFile {
-  FileID      Int       @id @default(autoincrement())
-  ClaimID     Int
-  FileName    String    @db.NVarChar(255)
-  FileType    String    @db.NVarChar(50)
-  FileSize    Int
-  FilePath    String    @db.NVarChar(500)
-  S3Path      String?   @db.NVarChar(500)
-  IsActive    Boolean   @default(true)
-  CreateBy    Int
-  CreateDate  DateTime  @default(now())
-
-  Claim CM_DocClaim @relation(fields: [ClaimID], references: [ClaimID], onDelete: Cascade, onUpdate: NoAction)
+  FileID     Int         @id @default(autoincrement())
+  ClaimID    Int
+  FileName   String      @db.NVarChar(255)
+  FileType   String      @db.NVarChar(50)
+  FileSize   Int
+  FilePath   String      @db.NVarChar(500)
+  S3Path     String?     @db.NVarChar(500)
+  IsActive   Boolean     @default(true)
+  CreateBy   Int
+  CreateDate DateTime    @default(now())
+  Claim      CM_DocClaim @relation(fields: [ClaimID], references: [ClaimID], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([ClaimID])
   @@map("CM_ClaimFile")
 }
 
+model CM_BranchSlotConfig {
+  ConfigID  Int                @id @default(autoincrement())
+  BranchID  Int
+  StartTime String             @db.NVarChar(10)
+  EndTime   String             @db.NVarChar(10)
+  MaxQueue  Int                @default(2)
+  IsActive  Boolean            @default(true)
+  Branch    CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+
+  @@unique([BranchID, StartTime, EndTime])
+  @@map("CM_BranchSlotConfig")
+}
+
+model CM_Booking {
+  BookingID       Int                @id @default(autoincrement())
+  BookingNo       String             @unique @db.NVarChar(50)
+  BookingDate     DateTime
+  StartTime       String             @db.NVarChar(10)
+  EndTime         String             @db.NVarChar(10)
+  CustomerName    String             @db.NVarChar(100)
+  CarModel        String             @db.NVarChar(100)
+  CarRegister     String             @db.NVarChar(20)
+  VinNo           String?            @db.NVarChar(50)
+  ProjectType     String?            @db.NVarChar(50)
+  InventoryItemID Int?
+  LastMileage     Int                @default(0)
+  Mileage         Int                @default(0)
+  ClaimDetail     String?            @db.NVarChar(Max)
+  BranchID        Int
+  CreateBy        Int
+  CreateDate      DateTime           @default(now())
+  Status          Int                @default(0)
+  ClaimID         Int?
+  BookingType     String             @default("EV7") @db.NVarChar(20)
+  // --- New Bay Booking fields ---
+  BayID           Int?
+  ServiceTypeID   Int?
+  DurationMinutes Int?
+  // --- Relations ---
+  Branch          CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+  Claim           CM_DocClaim?       @relation(fields: [ClaimID], references: [ClaimID], onDelete: NoAction, onUpdate: NoAction)
+  Bay             CM_ServiceBay?     @relation(fields: [BayID], references: [BayID], onDelete: NoAction, onUpdate: NoAction)
+  ServiceType     CM_ServiceType?    @relation(fields: [ServiceTypeID], references: [ServiceTypeID], onDelete: NoAction, onUpdate: NoAction)
+  Logs            CM_BookingLog[]
+
+  @@map("CM_Booking")
+}
+
 model CM_ClaimLog {
-  LogID       Int       @id @default(autoincrement())
+  LogID       Int         @id @default(autoincrement())
   ClaimID     Int
-  Action      String    @db.NVarChar(50)  // CREATED, SUBMITTED, APPROVED, REJECTED, INFO_REQUESTED, UPDATED
-  Description String?   @db.NVarChar(500)
+  Action      String      @db.NVarChar(50)
+  Description String?     @db.NVarChar(500)
   OldStatus   Int?
   NewStatus   Int?
   ActionBy    Int
-  ActionDate  DateTime  @default(now())
-
-  Claim CM_DocClaim @relation(fields: [ClaimID], references: [ClaimID], onDelete: Cascade, onUpdate: NoAction)
-  User  CM_User     @relation(fields: [ActionBy], references: [UserID], onDelete: NoAction, onUpdate: NoAction)
+  ActionDate  DateTime    @default(now())
+  User        CM_User     @relation(fields: [ActionBy], references: [UserID], onUpdate: NoAction)
+  Claim       CM_DocClaim @relation(fields: [ClaimID], references: [ClaimID], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([ClaimID])
   @@index([ActionDate])
   @@map("CM_ClaimLog")
+}
+
+model CM_BranchHoliday {
+  HolidayID   Int                @id @default(autoincrement())
+  BranchID    Int
+  HolidayDate DateTime
+  Description String?            @db.NVarChar(200)
+  IsActive    Boolean            @default(true)
+  CreateDate  DateTime           @default(now())
+  Branch      CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+
+  @@unique([BranchID, HolidayDate])
+  @@map("CM_BranchHoliday")
+}
+
+model CM_BranchWorkingDay {
+  BranchID  Int
+  DayOfWeek Int
+  IsOpen    Boolean            @default(true)
+  Branch    CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+
+  @@id([BranchID, DayOfWeek])
+  @@map("CM_BranchWorkingDay")
+}
+
+model CM_BookingLog {
+  LogID      Int        @id @default(autoincrement())
+  BookingID  Int
+  LogType    String     @db.NVarChar(50)
+  Content    String     @db.NVarChar(Max)
+  CreateBy   String     @db.NVarChar(100)
+  CreateDate DateTime   @default(now())
+  Booking    CM_Booking @relation(fields: [BookingID], references: [BookingID], onDelete: Cascade)
+
+  @@index([BookingID])
+  @@index([CreateDate])
+  @@map("CM_BookingLog")
+}
+
+model CM_BranchSlotOverride {
+  OverrideID       Int                @id @default(autoincrement())
+  BranchID         Int
+  OverrideDate     DateTime
+  StartTime        String             @db.NVarChar(10)
+  EndTime          String             @db.NVarChar(10)
+  IsOpen           Boolean            @default(true)
+  MaxQueueOverride Int?
+  Reason           String?            @db.NVarChar(200)
+  CreateBy         Int
+  CreateDate       DateTime           @default(now())
+
+  Branch           CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([BranchID, OverrideDate, StartTime, EndTime])
+  @@map("CM_BranchSlotOverride")
+}
+
+// ============================================================
+// Service Bay Booking System — New Models
+// ============================================================
+
+model CM_ServiceType {
+  ServiceTypeID   Int           @id @default(autoincrement())
+  Code            String        @unique @db.NVarChar(20)
+  Name            String        @db.NVarChar(100)
+  RequiresMileage Boolean       @default(false)
+  IsActive        Boolean       @default(true)
+  SortOrder       Int           @default(0)
+  CreateDate      DateTime      @default(now())
+  UpdateDate      DateTime      @updatedAt
+  FlatRates       CM_FlatRate[]
+  Bookings        CM_Booking[]
+
+  @@map("CM_ServiceType")
+}
+
+model CM_FlatRate {
+  FlatRateID      Int             @id @default(autoincrement())
+  ServiceTypeID   Int
+  MileageID       Int?
+  DurationMinutes Int
+  Description     String?         @db.NVarChar(200)
+  IsActive        Boolean         @default(true)
+  CreateDate      DateTime        @default(now())
+  UpdateDate      DateTime        @updatedAt
+  ServiceType     CM_ServiceType  @relation(fields: [ServiceTypeID], references: [ServiceTypeID], onUpdate: NoAction)
+  Mileage         CM_MsMileage?   @relation(fields: [MileageID], references: [MileageID], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([ServiceTypeID, MileageID])
+  @@map("CM_FlatRate")
+}
+
+model CM_ServiceBay {
+  BayID      Int                @id @default(autoincrement())
+  BranchID   Int
+  BayName    String             @db.NVarChar(50)
+  SortOrder  Int                @default(0)
+  IsActive   Boolean            @default(true)
+  IsOnline   Boolean            @default(true)
+  CreateDate DateTime           @default(now())
+  UpdateDate DateTime           @updatedAt
+  Branch     CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+  Bookings   CM_Booking[]
+
+  @@map("CM_ServiceBay")
 }

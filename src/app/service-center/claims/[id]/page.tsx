@@ -174,6 +174,24 @@ export default function ClaimDetailPage() {
                                             <dt className="text-sm text-gray-500">ชื่อลูกค้า</dt>
                                             <dd className="font-medium text-gray-900">{claim.CustomerName}</dd>
                                         </div>
+                                        {claim.Booking && claim.Booking[0]?.BookingType && (
+                                            <div>
+                                                <dt className="text-sm text-gray-500 mb-1">ประเภทลูกค้า / การจอง</dt>
+                                                <dd>
+                                                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                                                        claim.Booking[0].BookingType === 'EV7'
+                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                                            : claim.Booking[0].BookingType === 'RETAIL'
+                                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                            : 'bg-green-50 text-green-700 border border-green-200'
+                                                    }`}>
+                                                        {claim.Booking[0].BookingType === 'EV7' && '🚕 EV7 (รถ Taxi)'}
+                                                        {claim.Booking[0].BookingType === 'RETAIL' && '🚗 Retail (ลูกค้าทั่วไป)'}
+                                                        {claim.Booking[0].BookingType === 'LINEMAN' && '🛵 Lineman'}
+                                                    </span>
+                                                </dd>
+                                            </div>
+                                        )}
                                     </dl>
                                 </CardContent>
                             </Card>
