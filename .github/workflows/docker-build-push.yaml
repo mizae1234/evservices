@@ -36,5 +36,5 @@ jobs:
     steps:
       - name: Deploy
         run: |
-            curl -X POST ${{ secrets.DEPLOY_WEBHOOK }}/hooks/deploy-evservice \
+            curl -X POST ${{ secrets.DEPLOY_WEBHOOK }}/hooks/deploy-project-evservice \
               -H "X-Secret-Token: ${{ secrets.WEBHOOK_SECRET }}"
