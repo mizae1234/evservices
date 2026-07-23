@@ -49,20 +49,6 @@ export async function GET(request: NextRequest) {
             where.Status = parseInt(status);
         }
 
-        // Filter by date range
-        if (startDate || endDate) {
-            where.ClaimDate = {};
-            if (startDate) {
-                (where.ClaimDate as Record<string, Date>).gte = new Date(startDate);
-            }
-            if (endDate) {
-                // Add 1 day to include the end date
-                const end = new Date(endDate);
-                end.setDate(end.getDate() + 1);
-                (where.ClaimDate as Record<string, Date>).lt = end;
-            }
-        }
-
         // Search filter (SQL Server uses case-insensitive collation by default)
         if (search) {
             where.OR = [
@@ -70,6 +56,22 @@ export async function GET(request: NextRequest) {
                 { CustomerName: { contains: search } },
                 { CarRegister: { contains: search } },
             ];
+            // When searching, only apply date filter if explicitly provided (not default)
+            // to allow finding claims across all dates
+        } else {
+            // Filter by date range only when not searching
+            if (startDate || endDate) {
+                where.ClaimDate = {};
+                if (startDate) {
+                    (where.ClaimDate as Record<string, Date>).gte = new Date(startDate);
+                }
+                if (endDate) {
+                    // Add 1 day to include the end date
+                    const end = new Date(endDate);
+                    end.setDate(end.getDate() + 1);
+                    (where.ClaimDate as Record<string, Date>).lt = end;
+                }
+            }
         }
 
         // Get total count
