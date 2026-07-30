@@ -10,6 +10,7 @@ import {
 } from '@/components/ui';
 import { ArrowLeft, Clock, Check, Loader2, Plus, Trash2, GripVertical, Save, Wrench, ToggleLeft, ToggleRight, Globe } from 'lucide-react';
 import { CAR_MODEL_FLAT_RATES } from '@/lib/flat-rates-data';
+import { MileageWarning } from '@/components/bookings/MileageWarning';
 
 interface CarModel {
     ModelID: number;
@@ -725,36 +726,18 @@ function BayBookingPageInner() {
 
 
                     {/* ========== Warning: ไมล์อาจเกินระยะเช็ค ========== */}
-                    {selectedMileage && lastMileageNum > 0 && (() => {
+                    {(() => {
+                        if (!selectedMileage || lastMileageNum <= 0) return null;
                         const fr = flatRates.find(f => f.MileageID?.toString() === selectedMileage && f.Mileage);
                         if (!fr || !fr.Mileage) return null;
-                        const targetMileage = fr.Mileage.Value;
-                        const kmRemaining = targetMileage - lastMileageNum;
-                        if (kmRemaining <= 0) return null;
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const bookingDate = new Date(date);
-                        bookingDate.setHours(0, 0, 0, 0);
-                        const daysUntilBooking = Math.max(0, Math.ceil((bookingDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
-                        const estimatedMileageOnBookingDay = lastMileageNum + (daysUntilBooking * 400);
-                        if (estimatedMileageOnBookingDay > targetMileage) {
-                            return (
-                                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
-                                    <p className="font-bold text-amber-900 flex items-center gap-1.5">
-                                        ⚠️ ไมล์อาจเกินระยะเช็คที่เลือก
-                                    </p>
-                                    <p className="text-sm text-amber-800 mt-1.5 leading-relaxed">
-                                        ไมล์ปัจจุบัน <strong>{lastMileageNum.toLocaleString()}</strong> กม. → ระยะเช็ค <strong>{targetMileage.toLocaleString()}</strong> กม. 
-                                        (เหลืออีก <strong>{kmRemaining.toLocaleString()}</strong> กม.)
-                                    </p>
-                                    <p className="text-sm text-amber-800 mt-1 leading-relaxed">
-                                        เฉลี่ยวิ่งวันละ 400 กม. อีก <strong>{daysUntilBooking}</strong> วัน 
-                                        ไมล์โดยประมาณวันจองจะอยู่ที่ <strong>~{estimatedMileageOnBookingDay.toLocaleString()}</strong> กม. ซึ่งเกินระยะเช็คแล้ว
-                                    </p>
-                                </div>
-                            );
-                        }
-                        return null;
+                        return (
+                            <MileageWarning
+                                lastMileage={lastMileageNum}
+                                targetMileage={fr.Mileage.Value}
+                                bookingDate={date}
+                                showDetail
+                            />
+                        );
                     })()}
 
                     {/* ========== STEP 3: ระยะทาง (ถ้าเป็นเช็คระยะ) ========== */}

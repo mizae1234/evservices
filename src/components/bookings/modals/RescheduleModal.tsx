@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Modal, Button } from '@/components/ui';
 import { formatDate } from '@/lib/utils';
 import { SlotAvailability } from '@/types';
+import { MileageWarning } from '@/components/bookings/MileageWarning';
 
 interface Booking {
     BookingID: number;
@@ -221,35 +222,13 @@ export function RescheduleModal({ isOpen, onClose, booking, onSuccess, onError }
                     </div>
 
                     {/* Warning: ไมล์อาจเกินระยะเช็ค */}
-                    {rescheduleDate && booking.Mileage > 0 && booking.LastMileage > 0 && (() => {
-                        const targetMileage = booking.Mileage;
-                        const lastMileage = booking.LastMileage;
-                        const kmRemaining = targetMileage - lastMileage;
-                        if (kmRemaining <= 0) return null;
-                        const today = new Date();
-                        today.setHours(0, 0, 0, 0);
-                        const newDate = new Date(rescheduleDate);
-                        newDate.setHours(0, 0, 0, 0);
-                        const daysUntil = Math.max(0, Math.ceil((newDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
-                        const estimated = lastMileage + (daysUntil * 400);
-                        if (estimated > targetMileage) {
-                            return (
-                                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
-                                    <span className="text-amber-500 text-sm">⚠️</span>
-                                    <div>
-                                        <p className="text-xs font-bold text-amber-900">
-                                            คำเตือน: ระยะไมล์อาจเกินกำหนด ณ วันที่นัดใหม่
-                                        </p>
-                                        <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
-                                            เฉลี่ยวิ่งวันละ 400 กม. อีก <strong>{daysUntil}</strong> วัน
-                                            ไมล์โดยประมาณวันนัดใหม่จะอยู่ที่ <strong>~{estimated.toLocaleString()}</strong> กม.
-                                        </p>
-                                    </div>
-                                </div>
-                            );
-                        }
-                        return null;
-                    })()}
+                    {rescheduleDate && (
+                        <MileageWarning
+                            lastMileage={booking.LastMileage}
+                            targetMileage={booking.Mileage}
+                            bookingDate={rescheduleDate}
+                        />
+                    )}
 
                     {/* Action buttons */}
                     <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ArrowLeft, Car } from 'lucide-react';
+import { MileageWarning } from '@/components/bookings/MileageWarning';
 
 interface VehicleData {
     InventoryItemID: number;
@@ -374,6 +375,16 @@ export default function EditBookingPage() {
                                     required
                                 />
                             </div>
+
+                            {/* Warning: ไมล์อาจเกินระยะเช็ค */}
+                            {formData.Mileage > 0 && formData.LastMileage > 0 && formData.BookingDate && (
+                                <MileageWarning
+                                    lastMileage={formData.LastMileage}
+                                    targetMileage={formData.Mileage}
+                                    bookingDate={formData.BookingDate}
+                                    showDetail
+                                />
+                            )}
                         </div>
 
                         {/* Claim / Details Section */}
