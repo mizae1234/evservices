@@ -3,7 +3,7 @@
 
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
@@ -59,7 +59,7 @@ interface SlotAvailability {
     OverrideReason?: string | null;
 }
 
-export default function BookingsPage() {
+function BookingsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const { data: session } = useSession();
@@ -2108,5 +2108,13 @@ export default function BookingsPage() {
                 </div>
             </Modal>
         </>
+    );
+}
+
+export default function BookingsPage() {
+    return (
+        <Suspense fallback={<LoadingPage />}>
+            <BookingsPageContent />
+        </Suspense>
     );
 }

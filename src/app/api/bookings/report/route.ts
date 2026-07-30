@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
         let targetBranchId: number | undefined = undefined;
         if (session.user.role === 'SERVICE_CENTER') {
             // Service Center can only see their own branch
-            targetBranchId = parseInt(session.user.branchId || '0');
+            targetBranchId = Number(session.user.branchId) || 0;
         } else if (branchId && branchId !== 'all') {
             targetBranchId = parseInt(branchId);
         }

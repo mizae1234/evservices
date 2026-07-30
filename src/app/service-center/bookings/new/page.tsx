@@ -404,7 +404,6 @@ function NewBookingPageInner() {
                             >
                                 🚕 EV7 (รถ Taxi)
                             </button>
-                            </button>
                             {!isCS && (
                                 <button
                                     type="button"

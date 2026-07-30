@@ -278,7 +278,7 @@ function BayCalendarPageInner() {
         const sm = booking.StartTime.split(':')[1];
         setRescheduleHour(sh);
         setRescheduleMin(sm);
-        setCustomEndTime(booking.EndTime || computeDefaultEndTime(sh, sm, booking.DurationMinutes));
+        setCustomEndTime(booking.EndTime || computeDefaultEndTime(sh, sm, booking.DurationMinutes || 0));
         setRescheduleBayId(booking.BayID?.toString() || '');
         setRescheduleReason('');
         setRescheduleError('');
@@ -299,7 +299,7 @@ function BayCalendarPageInner() {
         setRescheduleHour(h);
         setRescheduleMin(m);
         if (selectedBooking) {
-            setCustomEndTime(computeDefaultEndTime(h, m, selectedBooking.DurationMinutes));
+            setCustomEndTime(computeDefaultEndTime(h, m, selectedBooking.DurationMinutes || 0));
         }
     };
 
@@ -888,7 +888,7 @@ function BayCalendarPageInner() {
                                                             key={btn.label}
                                                             type="button"
                                                             onClick={() => {
-                                                                const currentEnd = customEndTime || selectedBooking?.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking?.DurationMinutes);
+                                                                const currentEnd = customEndTime || selectedBooking?.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking?.DurationMinutes || 0);
                                                                 const [h, m] = currentEnd.split(':').map(Number);
                                                                 const d = new Date();
                                                                 d.setHours(h, m + btn.mins, 0, 0);
@@ -1001,7 +1001,7 @@ function BayCalendarPageInner() {
                                                         className="w-full text-blue-600 border-blue-200 hover:bg-blue-50 font-bold"
                                                         onClick={() => {
                                                             if (selectedBooking) {
-                                                                setCustomEndTime(selectedBooking.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking.DurationMinutes));
+                                                                setCustomEndTime(selectedBooking.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking.DurationMinutes || 0));
                                                             }
                                                             setIsRescheduling(true);
                                                         }}

@@ -72,7 +72,7 @@ export default function BookingReportPage() {
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
-            if (filterBranch) params.append('branchId', filterBranch);
+            if (filterBranch) params.append('branchId', String(filterBranch));
             if (filterDateFrom) params.append('dateFrom', filterDateFrom);
             if (filterDateTo) params.append('dateTo', filterDateTo);
             if (searchQuery) params.append('search', searchQuery);

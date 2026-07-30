@@ -234,7 +234,7 @@ function BayBookingPageInner() {
     // Auto-fill duration from Flat Rate
 
     // Helper to calculate custom duration
-    const getCalculatedDuration = (stId, mileageValue) => {
+    const getCalculatedDuration = (stId: number, mileageValue: string | null) => {
         if (!carModel) return null;
         const cm = carModels.find(m => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName) === carModel);
         if (!cm) return null;
@@ -247,9 +247,9 @@ function BayBookingPageInner() {
         else if (modelKey === 'HT') modelKey = 'HYPTEC HT';
         else if (modelKey === 'M8-PHEV') modelKey = 'M8 PHEV';
         
-        const ratesForModel = CAR_MODEL_FLAT_RATES[modelKey];
+        const ratesForModel = CAR_MODEL_FLAT_RATES[modelKey as keyof typeof CAR_MODEL_FLAT_RATES];
         if (ratesForModel && mileageValue) {
-            const hr = ratesForModel[mileageValue];
+            const hr = (ratesForModel as any)[mileageValue];
             if (hr) return hr * 60; // convert to minutes
         }
         return null;
@@ -266,7 +266,7 @@ function BayBookingPageInner() {
             // Override with CAR_MODEL_FLAT_RATES if applicable
             let finalDuration = rate ? rate.DurationMinutes : 0;
             if (rate && rate.Mileage) {
-                const custom = getCalculatedDuration(stId, rate.Mileage.Value);
+                const custom = getCalculatedDuration(stId, String(rate.Mileage.Value));
                 if (custom) {
                     finalDuration = custom;
                     // If ServiceType is "เช็คระยะ + ซ่อม" (ID = 2), add 60 minutes
