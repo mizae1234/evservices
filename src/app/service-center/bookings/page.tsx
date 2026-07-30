@@ -22,6 +22,11 @@ import { Branch, SlotAvailability } from '@/types';
 import { Plus, Settings, Check, X, ClipboardCopy, Search, Calendar, Clock, Pencil, PhoneCall, Timer } from 'lucide-react';
 import { CSStatusModal } from '@/components/bookings/modals/CSStatusModal';
 import { RescheduleModal } from '@/components/bookings/modals/RescheduleModal';
+import { BookingDetailModal } from '@/components/bookings/modals/BookingDetailModal';
+import { SlotOverrideModal } from '@/components/bookings/modals/SlotOverrideModal';
+import { DurationExtensionModal } from '@/components/bookings/modals/DurationExtensionModal';
+import { ActionConfirmModal, defaultActionModal } from '@/components/bookings/modals/ActionConfirmModal';
+import type { ActionModalState } from '@/components/bookings/modals/ActionConfirmModal';
 
 interface Booking {
     BookingID: number;
@@ -122,31 +127,13 @@ function BookingsPageContent() {
     const [selectedCSBooking, setSelectedCSBooking] = useState<Booking | null>(null);
 
     // Custom Action Confirmation Modal (Replaces native confirm / prompt / alert)
-    const [actionModal, setActionModal] = useState<{
-        isOpen: boolean;
-        title: string;
-        message: string;
-        type: 'confirm' | 'cancel_reason' | 'info' | 'error';
-        reasonText: string;
-        onConfirm?: (reason?: string) => void;
-    }>({
-        isOpen: false,
-        title: '',
-        message: '',
-        type: 'confirm',
-        reasonText: '',
-    });
+    const [actionModal, setActionModal] = useState<ActionModalState>(defaultActionModal);
 
     const canManageOverride = session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER';
 
     // Slot Override Modal state
     const [isOverrideModalOpen, setIsOverrideModalOpen] = useState(false);
     const [overrideSlot, setOverrideSlot] = useState<SlotAvailability | null>(null);
-    const [overrideIsOpen, setOverrideIsOpen] = useState(true);
-    const [overrideMaxQueue, setOverrideMaxQueue] = useState('');
-    const [overrideReason, setOverrideReason] = useState('');
-    const [isSavingOverride, setIsSavingOverride] = useState(false);
-    const [overrideSlotBookedCount, setOverrideSlotBookedCount] = useState(0);
 
     // Overdue and Reschedule states
     const [showOverdueOnly, setShowOverdueOnly] = useState(false);
@@ -156,136 +143,21 @@ function BookingsPageContent() {
     const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
     
     // Booking Detail Modal state
-    const [selectedBookingForDetail, setSelectedBookingForDetail] = useState<any | null>(null);
+    const [detailBookingId, setDetailBookingId] = useState<number | null>(null);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
 
     // Duration Extension Modal state
     const [isDurationModalOpen, setIsDurationModalOpen] = useState(false);
     const [selectedBookingForDuration, setSelectedBookingForDuration] = useState<Booking | null>(null);
-    const [durationEndTime, setDurationEndTime] = useState('');
-    const [durationReason, setDurationReason] = useState('');
-    const [durationError, setDurationError] = useState('');
-    const [isSavingDuration, setIsSavingDuration] = useState(false);
-
-    const addMinutesToTime = (timeStr: string, minsToAdd: number) => {
-        if (!timeStr) return '';
-        const [h, m] = timeStr.split(':').map(Number);
-        const date = new Date();
-        date.setHours(h, m + minsToAdd, 0, 0);
-        const newH = String(date.getHours()).padStart(2, '0');
-        const newM = String(date.getMinutes()).padStart(2, '0');
-        return `${newH}:${newM}`;
-    };
-
-    const calculateDurationText = (start: string, end: string) => {
-        if (!start || !end) return '';
-        const [sh, sm] = start.split(':').map(Number);
-        const [eh, em] = end.split(':').map(Number);
-        const startMins = sh * 60 + sm;
-        let endMins = eh * 60 + em;
-        if (endMins < startMins) endMins += 24 * 60;
-        const diff = endMins - startMins;
-        const hours = Math.floor(diff / 60);
-        const mins = diff % 60;
-        let text = '';
-        if (hours > 0) text += `${hours} ชม. `;
-        if (mins > 0) text += `${mins} นาที`;
-        return text || '0 นาที';
-    };
 
     const handleOpenDurationModal = (booking: Booking) => {
         setSelectedBookingForDuration(booking);
-        setDurationEndTime(booking.EndTime);
-        setDurationReason('');
-        setDurationError('');
         setIsDurationModalOpen(true);
     };
 
-    const handleSaveDuration = async () => {
-        if (!selectedBookingForDuration || !durationEndTime) return;
-        setDurationError('');
-
-        if (durationEndTime <= selectedBookingForDuration.StartTime) {
-            setDurationError('เวลาสิ้นสุดใหม่ต้องมากกว่าเวลาเริ่มต้น');
-            return;
-        }
-
-        setIsSavingDuration(true);
-        try {
-            const res = await fetch(`/api/bookings/${selectedBookingForDuration.BookingID}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    EndTime: durationEndTime,
-                    DurationReason: durationReason.trim() || 'ขยายเวลาซ่อม',
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setIsDurationModalOpen(false);
-                fetchBookings();
-                fetchDailySlots();
-                fetchCalendarData();
-                fetchOverdueCount();
-            } else {
-                setDurationError(data.error || 'เกิดข้อผิดพลาดในการบันทึก');
-            }
-        } catch (err) {
-            console.error(err);
-            setDurationError('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
-        } finally {
-            setIsSavingDuration(false);
-        }
-    };
-    const [isLoadingDetail, setIsLoadingDetail] = useState(false);
-    const [newNoteText, setNewNoteText] = useState('');
-    const [isSavingNote, setIsSavingNote] = useState(false);
-
-    const handleViewDetail = async (bookingId: number) => {
-        setIsLoadingDetail(true);
+    const handleViewDetail = (bookingId: number) => {
+        setDetailBookingId(bookingId);
         setIsDetailModalOpen(true);
-        setSelectedBookingForDetail(null);
-        try {
-            const res = await fetch(`/api/bookings/${bookingId}`);
-            const data = await res.json();
-            if (data.success) {
-                setSelectedBookingForDetail(data.data);
-            }
-        } catch (err) {
-            console.error('Error loading booking detail:', err);
-        } finally {
-            setIsLoadingDetail(false);
-        }
-    };
-
-    const handleSaveNote = async () => {
-        if (!selectedBookingForDetail || !newNoteText.trim()) return;
-        setIsSavingNote(true);
-        try {
-            const res = await fetch(`/api/bookings/${selectedBookingForDetail.BookingID}/logs`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: newNoteText }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setSelectedBookingForDetail((prev: any) => {
-                    if (!prev) return null;
-                    return {
-                        ...prev,
-                        Logs: [data.data, ...(prev.Logs || [])]
-                    };
-                });
-                setNewNoteText('');
-            } else {
-                alert(data.error || 'Failed to save note');
-            }
-        } catch (err) {
-            console.error('Error saving note:', err);
-            alert('Failed to connect to server');
-        } finally {
-            setIsSavingNote(false);
-        }
     };
 
     const toDateInputString = (isoString: string) => {
@@ -299,63 +171,7 @@ function BookingsPageContent() {
     // Slot Override Handlers
     const handleOpenOverrideModal = (slot: SlotAvailability) => {
         setOverrideSlot(slot);
-        setOverrideIsOpen(slot.IsSlotClosed ? false : true);
-        setOverrideMaxQueue(
-            slot.IsOverridden && !slot.IsSlotClosed
-                ? (slot.MaxQueue).toString()
-                : ''
-        );
-        setOverrideReason(slot.OverrideReason || '');
-        setOverrideSlotBookedCount(slot.BookedCount);
         setIsOverrideModalOpen(true);
-    };
-
-    const handleSaveOverride = async () => {
-        if (!overrideSlot || !filterBranch || !filterDate) return;
-
-        setIsSavingOverride(true);
-        try {
-            const res = await fetch('/api/bookings/slot-overrides', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    branchId: filterBranch,
-                    date: filterDate,
-                    startTime: overrideSlot.StartTime,
-                    endTime: overrideSlot.EndTime,
-                    isOpen: overrideIsOpen,
-                    maxQueueOverride: overrideIsOpen && overrideMaxQueue
-                        ? parseInt(overrideMaxQueue)
-                        : null,
-                    reason: overrideReason || null,
-                }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setIsOverrideModalOpen(false);
-                fetchDailySlots();
-                fetchCalendarData();
-            } else {
-                setActionModal({
-                    isOpen: true,
-                    title: 'บันทึกไม่สำเร็จ',
-                    message: data.error || 'ไม่สามารถบันทึกการปรับแต่งสล็อตได้',
-                    type: 'error',
-                    reasonText: '',
-                });
-            }
-        } catch (err) {
-            console.error('Error saving override:', err);
-            setActionModal({
-                isOpen: true,
-                title: 'เกิดข้อผิดพลาด',
-                message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
-                type: 'error',
-                reasonText: '',
-            });
-        } finally {
-            setIsSavingOverride(false);
-        }
     };
 
     const executeRemoveOverride = async (slot: SlotAvailability) => {
@@ -1275,500 +1091,42 @@ function BookingsPageContent() {
             />
 
             {/* Booking Detail Modal */}
-            <Modal
+            <BookingDetailModal
                 isOpen={isDetailModalOpen}
                 onClose={() => setIsDetailModalOpen(false)}
-                title="รายละเอียดการจองคิว"
-                size="2xl"
-            >
-                {isLoadingDetail ? (
-                    <div className="py-12 text-center text-gray-500">
-                        <div className="animate-spin inline-block w-6 h-6 border-2 border-current border-t-transparent text-blue-600 rounded-full mb-2" />
-                        <div className="text-xs">กำลังโหลดรายละเอียด...</div>
-                    </div>
-                ) : selectedBookingForDetail && (
-                    <div className="space-y-4">
-                        {/* Status Header */}
-                        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                            <div>
-                                <span className="text-xs font-bold text-gray-400 block uppercase tracking-wider">เลขที่การจอง</span>
-                                <span className="text-lg font-bold text-blue-600">{selectedBookingForDetail.BookingNo}</span>
-                            </div>
-                            <div>
-                                <span className="text-xs font-bold text-gray-400 block uppercase tracking-wider text-right">สถานะคิว</span>
-                                <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
-                                    selectedBookingForDetail.Status === 1 ? 'bg-green-100 text-green-800' :
-                                    selectedBookingForDetail.Status === 2 ? 'bg-red-100 text-red-800' :
-                                    selectedBookingForDetail.Status === 3 ? 'bg-blue-100 text-blue-800' :
-                                    selectedBookingForDetail.Status === 4 ? 'bg-emerald-100 text-emerald-800' :
-                                    'bg-yellow-100 text-yellow-800'
-                                }`}>
-                                    {selectedBookingForDetail.Status === 1 ? 'อนุมัติแล้ว' :
-                                     selectedBookingForDetail.Status === 2 ? 'ยกเลิก' :
-                                     selectedBookingForDetail.Status === 3 ? 'เปิดใบเคลมแล้ว' :
-                                     selectedBookingForDetail.Status === 4 ? 'ปิดงาน' :
-                                     'รอดำเนินการ'}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Customer & Vehicle Info */}
-                        <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl">
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">ชื่อลูกค้า</span>
-                                <span className="font-semibold text-gray-900">{selectedBookingForDetail.CustomerName}</span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">เบอร์โทร</span>
-                                <span className="font-semibold text-gray-900">{selectedBookingForDetail.CustomerPhone || '-'}</span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">สาขาที่จอง</span>
-                                <span className="font-semibold text-gray-900">{selectedBookingForDetail.Branch?.BranchName || 'ไม่ระบุ'}</span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">ทะเบียนรถยนต์</span>
-                                <span className="font-semibold text-gray-900">{selectedBookingForDetail.CarRegister}</span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">รุ่นรถยนต์</span>
-                                <span className="font-semibold text-gray-900">{selectedBookingForDetail.CarModel || '-'}</span>
-                            </div>
-                            <div className="col-span-2">
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">เลขตัวถัง (VIN)</span>
-                                <span className="font-mono text-xs font-semibold text-gray-900">{selectedBookingForDetail.VinNo || '-'}</span>
-                            </div>
-                        </div>
-
-                        {/* Booking Schedule & Mileage */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">วันที่นัดหมาย</span>
-                                <span className="font-semibold text-gray-900">
-                                    {formatDate(selectedBookingForDetail.BookingDate)}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">เวลานัดหมาย</span>
-                                <span className="font-semibold text-gray-900">
-                                    {selectedBookingForDetail.StartTime} - {selectedBookingForDetail.EndTime} น.
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">ประเภทงาน</span>
-                                <span className={`font-semibold ${
-                                    selectedBookingForDetail.ProjectType === 'ซ่อมทั่วไป' || selectedBookingForDetail.Mileage === 0
-                                        ? 'text-amber-600'
-                                        : 'text-blue-600'
-                                }`}>
-                                    {selectedBookingForDetail.ProjectType === 'ซ่อมทั่วไป' || selectedBookingForDetail.Mileage === 0
-                                        ? '🔧 ซ่อมทั่วไป'
-                                        : `📅 ตรวจเช็คระยะ (${selectedBookingForDetail.Mileage.toLocaleString()} กม.)`}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">เลขไมล์ปัจจุบัน</span>
-                                <span className="font-semibold text-gray-900">
-                                    {selectedBookingForDetail.LastMileage.toLocaleString()} กม.
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Claim/Issue Details */}
-                        <div>
-                            <span className="text-[10px] text-gray-400 block uppercase font-semibold mb-1">รายละเอียดอาการชำรุด</span>
-                            <div className="bg-white border border-gray-200 p-3 rounded-lg text-sm text-gray-700 whitespace-pre-wrap max-h-24 overflow-y-auto leading-relaxed">
-                                {selectedBookingForDetail.ClaimDetail || 'ไม่มีรายละเอียดเพิ่มเติม'}
-                            </div>
-                        </div>
-
-                        {/* Request & Approval Timestamps */}
-                        <div className="grid grid-cols-2 gap-4 bg-blue-50/50 p-3 rounded-xl border border-blue-100 text-xs">
-                            <div>
-                                <span className="text-[10px] text-blue-600 block uppercase font-bold">📥 วันที่สร้างคำขอ (ส่งจอง)</span>
-                                <span className="font-semibold text-gray-900">
-                                    {selectedBookingForDetail.CreateDate
-                                        ? new Date(selectedBookingForDetail.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' }) + ' น.'
-                                        : '-'}
-                                </span>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-emerald-600 block uppercase font-bold">✅ วันที่อนุมัติคิว</span>
-                                <span className="font-semibold text-gray-900">
-                                    {(() => {
-                                        const approvedLog = selectedBookingForDetail.Logs?.find((l: any) => l.LogType === 'APPROVED' || l.LogType === 'AUTO_APPROVED');
-                                        if (approvedLog) {
-                                            return new Date(approvedLog.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' }) + ' น.';
-                                        }
-                                        if (selectedBookingForDetail.Status === 1) {
-                                            return selectedBookingForDetail.CreateDate
-                                                ? new Date(selectedBookingForDetail.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' }) + ' น.'
-                                                : 'อนุมัติแล้ว';
-                                        }
-                                        if (selectedBookingForDetail.Status === 2) return 'ยกเลิกแล้ว';
-                                        return '⏳ รอการอนุมัติ';
-                                    })()}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Timeline logs */}
-                        <div className="space-y-1 pt-2 border-t border-gray-100">
-                            <span className="text-[10px] text-gray-400 block uppercase font-semibold">บันทึกประวัติการเลื่อนคิวและโน้ตช่วยจำ</span>
-                            <div className="bg-white border border-gray-200 rounded-xl p-3 max-h-40 overflow-y-auto space-y-2 leading-relaxed">
-                                {(!selectedBookingForDetail.Logs || selectedBookingForDetail.Logs.length === 0) ? (
-                                    <div className="text-xs text-gray-400 text-center py-4">ไม่มีประวัติการบันทึกคิวนี้</div>
-                                ) : (
-                                    <>
-                                        {/* Fallback for creation date if older booking has no CREATED log */}
-                                        {selectedBookingForDetail.CreateDate && !selectedBookingForDetail.Logs?.some((l: any) => l.LogType === 'CREATED' || l.LogType === 'AUTO_APPROVED') && (
-                                            <div className="p-2 rounded-lg border text-xs bg-blue-50/50 border-blue-200 text-blue-950">
-                                                <div className="flex items-center justify-between font-bold mb-1">
-                                                    <span className="flex items-center gap-1">
-                                                        <span>📥</span>
-                                                        <span>ขอจองคิวในระบบ (วันเปิดคำขอ)</span>
-                                                    </span>
-                                                    <span className="text-[10px] font-normal text-gray-400">
-                                                        {new Date(selectedBookingForDetail.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' })} น.
-                                                    </span>
-                                                </div>
-                                                <div className="text-[11px] opacity-80">วันที่ลูกค้า/เจ้าหน้าที่ส่งคำขอจองคิวเข้ามาในระบบ</div>
-                                            </div>
-                                        )}
-                                        {selectedBookingForDetail.Logs.map((log: any) => {
-                                            let icon = '⚙️';
-                                            let bgColor = 'bg-gray-50 border-gray-200 text-gray-800';
-                                            let title = 'บันทึกระบบ';
-                                            if (log.LogType === 'CREATED') {
-                                                icon = '📥';
-                                                bgColor = 'bg-blue-50/50 border-blue-200 text-blue-950';
-                                                title = 'ขอจองคิว (รออนุมัติ)';
-                                        } else if (log.LogType === 'APPROVED' || log.LogType === 'AUTO_APPROVED') {
-                                            icon = '✅';
-                                            bgColor = 'bg-green-50/50 border-green-200 text-green-950';
-                                            title = log.LogType === 'AUTO_APPROVED' ? 'อนุมัติอัตโนมัติ' : 'อนุมัติการจองคิว';
-                                        } else if (log.LogType === 'REJECTED') {
-                                            icon = '🚫';
-                                            bgColor = 'bg-red-50/50 border-red-200 text-red-950';
-                                            title = 'ปฏิเสธคำขอจองคิว';
-                                        } else if (log.LogType === 'RESCHEDULE') {
-                                            icon = '📅';
-                                            bgColor = 'bg-blue-50/50 border-blue-200 text-blue-950';
-                                            title = 'เลื่อนนัดหมาย';
-                                        } else if (log.LogType === 'CANCEL') {
-                                            icon = '❌';
-                                            bgColor = 'bg-red-50/50 border-red-200 text-red-950';
-                                            title = 'ยกเลิกคิว';
-                                        } else if (log.LogType === 'NOTE' || log.LogType === 'CS_NOTE') {
-                                            icon = '📞';
-                                            bgColor = 'bg-orange-50/50 border-orange-200 text-orange-950';
-                                            title = 'บันทึกการติดตาม (CS Call Center)';
-                                        }
-                                        
-                                        return (
-                                            <div key={log.LogID} className={`p-2 rounded-lg border text-xs ${bgColor}`}>
-                                                <div className="flex items-center justify-between font-bold mb-1">
-                                                    <span className="flex items-center gap-1">
-                                                        <span>{icon}</span>
-                                                        <span>{title}</span>
-                                                    </span>
-                                                    <span className="text-[10px] font-normal text-gray-400">
-                                                        โดย: {log.CreateBy} | {new Date(log.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' })} น.
-                                                    </span>
-                                                </div>
-                                                <div className="whitespace-pre-wrap font-medium">{log.Content}</div>
-                                            </div>
-                                        );
-                                    })}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Write new note */}
-                        {(selectedBookingForDetail.Status === 0 || selectedBookingForDetail.Status === 1) && (
-                            <div className="pt-2 border-t border-gray-100">
-                                <label className="block text-[10px] text-gray-400 uppercase font-semibold mb-1">เขียนบันทึกช่วยจำ / โน้ตใหม่</label>
-                                <div className="flex gap-2">
-                                    <textarea
-                                        placeholder="เช่น ลูกค้าแจ้งความต้องการพิเศษ / โน้ตเตือนผู้เกี่ยวข้อง..."
-                                        value={newNoteText}
-                                        onChange={(e) => setNewNoteText(e.target.value)}
-                                        className="flex-1 border border-gray-300 rounded-lg p-2 text-xs text-gray-900 placeholder-gray-400 h-10 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                                    />
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        disabled={isSavingNote || !newNoteText.trim()}
-                                        onClick={handleSaveNote}
-                                        className="bg-blue-600 hover:bg-blue-700 text-white h-10 self-end text-xs px-3"
-                                    >
-                                        {isSavingNote ? 'กำลังบันทึก...' : 'บันทึกโน้ต'}
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Close button */}
-                        <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
-                            {(selectedBookingForDetail.Status === 0 || selectedBookingForDetail.Status === 1) && (
-                                <Button
-                                    onClick={() => {
-                                        setIsDetailModalOpen(false);
-                                        router.push(`/service-center/bookings/${selectedBookingForDetail.BookingID}/edit`);
-                                    }}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white flex items-center gap-1.5"
-                                >
-                                    <Pencil className="w-4 h-4" />
-                                    แก้ไขข้อมูลคิว
-                                </Button>
-                            )}
-                            <Button
-                                onClick={() => setIsDetailModalOpen(false)}
-                                variant="outline"
-                            >
-                                ปิดหน้าต่าง
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
+                bookingId={detailBookingId}
+            />
 
             {/* Slot Override Modal */}
-            <Modal
+            <SlotOverrideModal
                 isOpen={isOverrideModalOpen}
                 onClose={() => setIsOverrideModalOpen(false)}
-                title={`ปรับสล็อต ${overrideSlot?.StartTime || ''} - ${overrideSlot?.EndTime || ''} น.`}
-            >
-                <div className="space-y-4 p-1">
-                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-xs text-blue-800">
-                        <strong>ปรับโควตาสล็อตชั่วคราว</strong> สำหรับวันที่ <strong>{formatDate(filterDate)}</strong> เท่านั้น
-                        <br />ค่า default ของสล็อตนี้: <strong>{overrideSlot?.OriginalMaxQueue ?? overrideSlot?.MaxQueue ?? '-'} คิว</strong>
-                    </div>
+                slot={overrideSlot}
+                filterBranch={filterBranch}
+                filterDate={filterDate}
+                onSaved={() => {
+                    fetchDailySlots();
+                    fetchCalendarData();
+                }}
+                onError={(title, message) => setActionModal({
+                    isOpen: true, title, message, type: 'error', reasonText: '',
+                })}
+            />
 
-                    {/* Toggle: Open / Close */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">สถานะสล็อต</label>
-                        <div className="flex gap-3">
-                            <button
-                                type="button"
-                                onClick={() => setOverrideIsOpen(true)}
-                                className={`flex-1 py-2.5 rounded-lg border text-sm font-bold transition-all ${
-                                    overrideIsOpen
-                                        ? 'bg-green-50 border-green-300 text-green-700 ring-2 ring-green-200'
-                                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                                }`}
-                            >
-                                ✅ เปิดรับคิว
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setOverrideIsOpen(false)}
-                                className={`flex-1 py-2.5 rounded-lg border text-sm font-bold transition-all ${
-                                    !overrideIsOpen
-                                        ? 'bg-red-50 border-red-300 text-red-700 ring-2 ring-red-200'
-                                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                                }`}
-                            >
-                                🚫 ปิดรับคิว
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Warning: existing bookings when closing */}
-                    {!overrideIsOpen && overrideSlotBookedCount > 0 && (
-                        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
-                            <span className="text-base mt-[-2px]">⚠️</span>
-                            <div>
-                                <strong>สล็อตนี้มีคิวจองอยู่แล้ว {overrideSlotBookedCount} คิว</strong>
-                                <br />การปิดสล็อตจะไม่ยกเลิกคิวที่จองไว้แล้ว แต่จะ<strong>ไม่รับคิวใหม่</strong>เพิ่ม
-                                <br />หากต้องการย้ายคิว สามารถ Reschedule ได้จากรายการจองด้านล่าง
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Warning: reducing quota below booked count */}
-                    {overrideIsOpen && overrideMaxQueue && parseInt(overrideMaxQueue) < overrideSlotBookedCount && overrideSlotBookedCount > 0 && (
-                        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
-                            <span className="text-base mt-[-2px]">⚠️</span>
-                            <div>
-                                <strong>โควตาที่ตั้ง ({overrideMaxQueue}) น้อยกว่าคิวที่จองอยู่แล้ว ({overrideSlotBookedCount} คิว)</strong>
-                                <br />คิวที่จองไว้แล้วจะยังคงอยู่ แต่สล็อตจะแสดงสถานะ "เต็ม" ไม่รับคิวใหม่
-                            </div>
-                        </div>
-                    )}
-
-                    {/* MaxQueue Override (only when open) */}
-                    {overrideIsOpen && (
-                        <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-1">จำนวนโควตาที่ต้องการ (เว้นว่างหาก = ค่า default)</label>
-                            <Input
-                                type="number"
-                                value={overrideMaxQueue}
-                                onChange={(e) => setOverrideMaxQueue(e.target.value)}
-                                placeholder={`ค่า default: ${overrideSlot?.OriginalMaxQueue ?? overrideSlot?.MaxQueue ?? '-'} คิว`}
-                                min="0"
-                                max="99"
-                            />
-                            <p className="text-xs text-gray-400 mt-1">เว้นว่างเพื่อใช้ค่า default ({overrideSlot?.OriginalMaxQueue ?? overrideSlot?.MaxQueue ?? '-'} คิว)</p>
-                        </div>
-                    )}
-
-                    {/* Reason */}
-                    <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-1">เหตุผลการปรับ (ไม่บังคับ)</label>
-                        <Input
-                            value={overrideReason}
-                            onChange={(e) => setOverrideReason(e.target.value)}
-                            placeholder="เช่น คนงานน้อย / เครื่องมือไม่พอ / ปรับตามงานจริง"
-                        />
-                    </div>
-
-                    {/* Preview */}
-                    <div className="bg-gray-50 border border-gray-100 rounded-lg p-3 text-xs text-gray-600">
-                        <strong>ผลลัพธ์:</strong>{' '}
-                        {!overrideIsOpen ? (
-                            <span className="text-red-600 font-bold">สล็อตนี้จะถูกปิดรับคิวในวันที่เลือก</span>
-                        ) : overrideMaxQueue ? (
-                            <span className="text-orange-600 font-bold">สล็อตนี้จะรับคิวสูงสุด {overrideMaxQueue} คิว (แทน {overrideSlot?.OriginalMaxQueue ?? overrideSlot?.MaxQueue} คิว)</span>
-                        ) : (
-                            <span className="text-green-600 font-bold">สล็อตนี้จะใช้ค่า default ({overrideSlot?.OriginalMaxQueue ?? overrideSlot?.MaxQueue} คิว)</span>
-                        )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
-                        <Button variant="outline" onClick={() => setIsOverrideModalOpen(false)}>
-                            ยกเลิก
-                        </Button>
-                        <Button onClick={handleSaveOverride} isLoading={isSavingOverride}>
-                            💾 บันทึกการปรับ
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
             {/* Duration Extension Modal */}
-            <Modal
+            <DurationExtensionModal
                 isOpen={isDurationModalOpen}
-                onClose={() => !isSavingDuration && setIsDurationModalOpen(false)}
-                title="⏱️ ขยาย / ปรับระยะเวลาซ่อม"
-            >
-                {selectedBookingForDuration && (
-                    <div className="space-y-4">
-                        {durationError && (
-                            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-semibold flex items-center gap-2">
-                                <span>❌</span>
-                                <span>{durationError}</span>
-                            </div>
-                        )}
+                onClose={() => setIsDurationModalOpen(false)}
+                booking={selectedBookingForDuration}
+                allBookings={bookings}
+                onSaved={() => {
+                    fetchBookings();
+                    fetchDailySlots();
+                    fetchCalendarData();
+                    fetchOverdueCount();
+                }}
+            />
 
-                        <div className="bg-purple-50 border border-purple-200 rounded-xl p-3.5 text-sm text-purple-900 leading-relaxed">
-                            <div className="font-bold flex items-center justify-between border-b border-purple-200/60 pb-2 mb-2">
-                                <span>เลขที่จอง: {selectedBookingForDuration.BookingNo}</span>
-                                <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full font-semibold">
-                                    {selectedBookingForDuration.CarRegister}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div>ลูกค้า: <strong>{selectedBookingForDuration.CustomerName}</strong></div>
-                                <div>เวลาเริ่มต้นเดิม: <strong>{selectedBookingForDuration.StartTime} น.</strong></div>
-                                <div>เวลาสิ้นสุดเดิม: <strong>{selectedBookingForDuration.EndTime} น.</strong></div>
-                                <div>ระยะเวลาเดิม: <strong>{calculateDurationText(selectedBookingForDuration.StartTime, selectedBookingForDuration.EndTime)}</strong></div>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wider">
-                                เลือกกดเพิ่มเวลาด่วน (Quick Add)
-                            </label>
-                            <div className="grid grid-cols-4 gap-2">
-                                {[
-                                    { label: '+30 นาที', mins: 30 },
-                                    { label: '+1 ชม.', mins: 60 },
-                                    { label: '+1.5 ชม.', mins: 90 },
-                                    { label: '+2 ชม.', mins: 120 },
-                                ].map((item) => {
-                                    const newEnd = addMinutesToTime(selectedBookingForDuration.EndTime, item.mins);
-                                    const isSelected = durationEndTime === newEnd;
-                                    return (
-                                        <button
-                                            key={item.label}
-                                            type="button"
-                                            onClick={() => setDurationEndTime(newEnd)}
-                                            className={`py-2 px-1 text-xs font-semibold rounded-lg border transition-all ${
-                                                isSelected
-                                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm ring-2 ring-purple-200'
-                                                    : 'bg-white hover:bg-purple-50 border-gray-200 text-purple-700'
-                                            }`}
-                                        >
-                                            {item.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3 items-end">
-                            <Input
-                                label="เวลาสิ้นสุดใหม่ (EndTime)"
-                                type="time"
-                                value={durationEndTime}
-                                onChange={(e) => setDurationEndTime(e.target.value)}
-                                required
-                            />
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-center text-xs">
-                                <span className="text-gray-500 block">ระยะเวลาใหม่รวม</span>
-                                <strong className="text-purple-700 text-sm font-bold">
-                                    {calculateDurationText(selectedBookingForDuration.StartTime, durationEndTime)}
-                                </strong>
-                            </div>
-                        </div>
-
-                        {/* Overlap Notice */}
-                        {bookings.some(b => 
-                            b.BookingID !== selectedBookingForDuration.BookingID &&
-                            b.Status !== 2 &&
-                            b.BookingDate === selectedBookingForDuration.BookingDate &&
-                            b.StartTime >= selectedBookingForDuration.StartTime &&
-                            b.StartTime < durationEndTime
-                        ) && (
-                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed flex items-start gap-2">
-                                <span className="text-sm">⚠️</span>
-                                <div>
-                                    <strong>เวลาใหม่คาบเกี่ยวกับคิวอื่นในวันเดียวกัน:</strong>
-                                    <p className="mt-0.5 text-amber-700">
-                                        การขยายเวลาจะทำให้ช่วงเวลานี้ชนกับคิวถัดไป คุณสามารถบันทึกได้ และบริหารจัดการคิวคันต่อๆ ไปหน้างานตามความเหมาะสม
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
-                        <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">เหตุผลในการปรับเวลา (ถ้ามี)</label>
-                            <textarea
-                                placeholder="ระบุเหตุผลการขยายเวลา เช่น งานซ่อมใช้เวลามากกว่าปกติ, รออะไหล่..."
-                                value={durationReason}
-                                onChange={(e) => setDurationReason(e.target.value)}
-                                rows={2}
-                                className="w-full border border-gray-300 rounded-lg p-2 text-xs text-gray-900 focus:ring-purple-500 focus:border-purple-500 placeholder:text-gray-400"
-                            />
-                        </div>
-
-                        <div className="flex justify-end gap-2 pt-2 border-t">
-                            <Button variant="outline" onClick={() => setIsDurationModalOpen(false)} disabled={isSavingDuration}>
-                                ยกเลิก
-                            </Button>
-                            <Button 
-                                onClick={handleSaveDuration}
-                                disabled={isSavingDuration}
-                                className="bg-purple-600 hover:bg-purple-700 text-white"
-                            >
-                                {isSavingDuration ? 'กำลังบันทึก...' : '💾 บันทึกการปรับเวลา'}
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
             {/* CS Call Center Update Modal */}
             <CSStatusModal
                 isOpen={isCSModalOpen}
@@ -1776,51 +1134,12 @@ function BookingsPageContent() {
                 booking={selectedCSBooking}
                 onSave={handleSaveCSStatus}
             />
-            {/* Action Confirmation & Alert Modal (Replaces browser confirm/prompt/alert) */}
-            <Modal isOpen={actionModal.isOpen} onClose={() => setActionModal(prev => ({ ...prev, isOpen: false }))} title={actionModal.title}>
-                <div className="space-y-4 pt-2">
-                    <p className="text-sm text-gray-700 font-medium">{actionModal.message}</p>
 
-                    {actionModal.type === 'cancel_reason' && (
-                        <div>
-                            <label className="block text-xs font-semibold text-gray-600 mb-1">เหตุผลในการยกเลิก *</label>
-                            <textarea
-                                value={actionModal.reasonText}
-                                onChange={(e) => setActionModal(prev => ({ ...prev, reasonText: e.target.value }))}
-                                rows={3}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-red-500 focus:outline-none placeholder:text-gray-400"
-                                placeholder="พิมพ์เหตุผลที่นี่..."
-                                autoFocus
-                            />
-                        </div>
-                    )}
-
-                    <div className="flex justify-end gap-3 pt-4">
-                        {actionModal.type === 'confirm' || actionModal.type === 'cancel_reason' ? (
-                            <>
-                                <Button variant="outline" onClick={() => setActionModal(prev => ({ ...prev, isOpen: false }))}>
-                                    ยกเลิก
-                                </Button>
-                                <Button
-                                    className={actionModal.type === 'cancel_reason' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}
-                                    onClick={() => {
-                                        const reason = actionModal.reasonText;
-                                        const onConf = actionModal.onConfirm;
-                                        setActionModal(prev => ({ ...prev, isOpen: false }));
-                                        if (onConf) onConf(reason);
-                                    }}
-                                >
-                                    ตกลงยืนยัน
-                                </Button>
-                            </>
-                        ) : (
-                            <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setActionModal(prev => ({ ...prev, isOpen: false }))}>
-                                ตกลง
-                            </Button>
-                        )}
-                    </div>
-                </div>
-            </Modal>
+            {/* Action Confirmation & Alert Modal */}
+            <ActionConfirmModal
+                state={actionModal}
+                onStateChange={setActionModal}
+            />
         </>
     );
 }
