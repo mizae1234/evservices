@@ -27,6 +27,7 @@ import { SlotOverrideModal } from '@/components/bookings/modals/SlotOverrideModa
 import { DurationExtensionModal } from '@/components/bookings/modals/DurationExtensionModal';
 import { ActionConfirmModal, defaultActionModal } from '@/components/bookings/modals/ActionConfirmModal';
 import type { ActionModalState } from '@/components/bookings/modals/ActionConfirmModal';
+import { MonthlyCalendar } from '@/components/bookings/MonthlyCalendar';
 
 interface Booking {
     BookingID: number;
@@ -76,15 +77,6 @@ function BookingsPageContent() {
         const dParam = searchParams.get('date');
         if (dParam) {
             setFilterDate(dParam);
-            const parts = dParam.split('-');
-            if (parts.length === 3) {
-                const y = parseInt(parts[0]);
-                const m = parseInt(parts[1]);
-                if (y && m) {
-                    setCalendarYear(y);
-                    setCalendarMonth(m);
-                }
-            }
         }
         const sParam = searchParams.get('search');
         if (sParam) {
@@ -110,17 +102,9 @@ function BookingsPageContent() {
     const [isBranchClosedDaily, setIsBranchClosedDaily] = useState(false);
     const [branchClosedReasonDaily, setBranchClosedReasonDaily] = useState('');
 
-    // Monthly Calendar state
-    const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
-    const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth() + 1);
-    const [calendarData, setCalendarData] = useState<Record<string, {
-        isClosed: boolean;
-        reason: string;
-        maxQueue: number;
-        bookedCount: number;
-        hasOverride?: boolean;
-    }>>({});
-    const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
+    // Monthly Calendar refresh trigger — increment to force re-fetch
+    const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+    const refreshCalendar = () => setCalendarRefreshKey(prev => prev + 1);
 
     // CS Status Update Modal
     const [isCSModalOpen, setIsCSModalOpen] = useState(false);
@@ -190,7 +174,7 @@ function BookingsPageContent() {
                     const delData = await delRes.json();
                     if (delData.success) {
                         fetchDailySlots();
-                        fetchCalendarData();
+                        refreshCalendar();
                     } else {
                         setActionModal({
                             isOpen: true,
@@ -226,182 +210,8 @@ function BookingsPageContent() {
         });
     };
 
-    const fetchCalendarData = async () => {
-        setIsLoadingCalendar(true);
-        try {
-            const res = await fetch(`/api/bookings/calendar?branchId=${filterBranch}&year=${calendarYear}&month=${calendarMonth}&search=${encodeURIComponent(searchQuery)}`);
-            const data = await res.json();
-            if (data.success) {
-                setCalendarData(data.data);
-            } else {
-                setCalendarData({});
-            }
-        } catch (err) {
-            console.error('Error fetching calendar data:', err);
-            setCalendarData({});
-        } finally {
-            setIsLoadingCalendar(false);
-        }
-    };
 
-    useEffect(() => {
-        if (session?.user) {
-            fetchCalendarData();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [session, filterBranch, calendarYear, calendarMonth, searchQuery]);
 
-    const handlePrevMonth = () => {
-        if (calendarMonth === 1) {
-            setCalendarMonth(12);
-            setCalendarYear(prev => prev - 1);
-        } else {
-            setCalendarMonth(prev => prev - 1);
-        }
-    };
-
-    const handleNextMonth = () => {
-        if (calendarMonth === 12) {
-            setCalendarMonth(1);
-            setCalendarYear(prev => prev + 1);
-        } else {
-            setCalendarMonth(prev => prev + 1);
-        }
-    };
-
-    const monthNamesThai = [
-        'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-        'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'
-    ];
-
-    const renderCalendarCells = () => {
-        const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
-        const firstDayIndex = new Date(calendarYear, calendarMonth - 1, 1).getDay(); // 0 = Sun, 6 = Sat
-        
-        const cells = [];
-        
-        // Blank cells before the first day of the month
-        for (let i = 0; i < firstDayIndex; i++) {
-            cells.push(<div key={`empty-${i}`} className="bg-gray-50/50 border border-gray-100 rounded-xl h-24" />);
-        }
-        
-        // Days in the month
-        for (let day = 1; day <= daysInMonth; day++) {
-            const dateStr = `${calendarYear}-${String(calendarMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const stats = calendarData[dateStr] || { isClosed: false, reason: '', maxQueue: 0, bookedCount: 0 };
-            
-            const isSelected = filterDate === dateStr;
-            const isToday = new Date().toISOString().split('T')[0] === dateStr;
-            
-            const todayStr = new Date().toISOString().split('T')[0];
-            const isPast = dateStr < todayStr;
-
-            let bgClass = 'bg-white border-gray-200 hover:bg-blue-50/20';
-            let borderClass = 'border-gray-100';
-            
-            if (isPast) {
-                bgClass = 'bg-gray-100/40 text-gray-400 cursor-not-allowed opacity-50';
-                borderClass = 'border-gray-200';
-            } else if (stats.isClosed) {
-                bgClass = 'bg-red-50/20 text-gray-400 cursor-not-allowed opacity-60';
-                borderClass = 'border-red-100';
-            } else if (stats.maxQueue > 0) {
-                const percent = (stats.bookedCount / stats.maxQueue) * 100;
-                if (percent >= 100) {
-                    bgClass = 'bg-red-100/60 hover:bg-red-200/50 text-red-900 border-red-300';
-                    borderClass = 'border-red-300';
-                } else if (percent >= 80) {
-                    bgClass = 'bg-amber-50/60 hover:bg-amber-100/50 text-amber-800';
-                    borderClass = 'border-amber-200';
-                } else {
-                    bgClass = 'bg-green-50/40 hover:bg-green-100/40 text-green-800';
-                    borderClass = 'border-green-200';
-                }
-            }
-
-            if (isSelected) {
-                borderClass = 'border-blue-500 ring-2 ring-blue-500/20';
-            }
-
-            cells.push(
-                <div
-                    key={`day-${day}`}
-                    onClick={() => {
-                        if (!isPast) {
-                            setFilterDate(dateStr);
-                        }
-                    }}
-                    className={`p-2 border rounded-xl flex flex-col justify-between transition-all duration-200 h-24 text-left cursor-pointer ${bgClass} ${borderClass}`}
-                >
-                    <div className="flex items-center justify-between w-full">
-                        <span className={`text-sm font-bold ${isToday ? 'bg-blue-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : 'text-gray-700'}`}>
-                            {day}
-                        </span>
-                        
-                        <div className="flex items-center gap-1.5">
-                            {stats.hasOverride && !isPast && <span className="w-2 h-2 rounded-full bg-orange-400 animate-pulse" title="มีการปรับโควตาชั่วคราว" />}
-                            {isToday && <span className="text-[9px] bg-blue-100 text-blue-800 font-bold px-1 rounded">วันนี้</span>}
-                            {!isPast && !stats.isClosed && (
-                                <button
-                                    type="button"
-                                    title="จองคิวสำหรับวันนี้"
-                                    onClick={(e) => {
-                                        e.stopPropagation(); // Avoid triggering cell click selection
-                                        handleNewBookingRedirect(dateStr);
-                                    }}
-                                    className="bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-bold w-5 h-5 rounded-md flex items-center justify-center shadow-sm hover:scale-110 transition-all duration-200"
-                                >
-                                    +
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="mt-2 w-full">
-                        {isPast ? (
-                            <span className="text-[10px] text-gray-400 block font-medium">
-                                ผ่านมาแล้ว
-                            </span>
-                        ) : stats.isClosed ? (
-                            <span className="text-[10px] font-bold text-red-500 block truncate" title={stats.reason}>
-                                🚫 {stats.reason || 'ปิดทำการ'}
-                            </span>
-                        ) : stats.maxQueue > 0 ? (
-                            <div>
-                                {stats.bookedCount >= stats.maxQueue ? (
-                                    <span className="text-[10px] font-extrabold text-red-600 block animate-pulse">
-                                        🔴 คิวเต็มแล้ว
-                                    </span>
-                                ) : (
-                                    <div className="text-[10px] font-semibold text-gray-600">
-                                        จอง {stats.bookedCount}/{stats.maxQueue} คิว
-                                    </div>
-                                )}
-                                <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1 overflow-hidden">
-                                    <div 
-                                        className={`h-1.5 rounded-full ${
-                                            (stats.bookedCount / stats.maxQueue) >= 1
-                                                ? 'bg-red-500'
-                                                : (stats.bookedCount / stats.maxQueue) >= 0.8
-                                                    ? 'bg-amber-500'
-                                                    : 'bg-green-500'
-                                        }`}
-                                        style={{ width: `${Math.min(100, (stats.bookedCount / stats.maxQueue) * 100)}%` }}
-                                    />
-                                </div>
-                            </div>
-                        ) : (
-                            <span className={`text-[10px] block ${stats.bookedCount > 0 ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>
-                                {stats.bookedCount > 0 ? `จองแล้ว ${stats.bookedCount} คิว` : 'ไม่มีคิว'}
-                            </span>
-                        )}
-                    </div>
-                </div>
-            );
-        }
-        
-        return cells;
-    };
 
     const fetchDailySlots = async () => {
         if (!filterBranch) {
@@ -566,7 +376,7 @@ function BookingsPageContent() {
             if (data.success) {
                 fetchBookings();
                 fetchDailySlots();
-                fetchCalendarData();
+                refreshCalendar();
                 fetchOverdueCount();
             } else {
                 setActionModal({
@@ -805,57 +615,16 @@ function BookingsPageContent() {
 
                 {/* Monthly Calendar View */}
                 {!showOverdueOnly && (
-                    <Card className="bg-white border border-gray-100 shadow-sm rounded-xl p-5">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-gray-100">
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-1.5">
-                                <Calendar className="w-4 h-4 text-blue-600 animate-pulse" />
-                                ปฏิทินความจุคิวบริการรายเดือน: <span className="text-blue-600 font-bold">{branches.find(b => b.BranchID.toString() === filterBranch)?.BranchName || 'ทุกสาขา'}</span>
-                            </h3>
-                                <p className="text-xs text-gray-400 mt-0.5">
-                                    ประจำเดือน {monthNamesThai[calendarMonth - 1]} {calendarYear + 543} (คลิกเลือกวันที่บนปฏิทิน เพื่อตรวจสอบและจองคิวว่างด้านล่าง)
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Button size="sm" variant="outline" onClick={handlePrevMonth}>
-                                    &larr; เดือนก่อนหน้า
-                                </Button>
-                                <div className="text-xs font-bold text-gray-700 px-3 py-1 bg-gray-50 border border-gray-100 rounded-lg">
-                                    {monthNamesThai[calendarMonth - 1]} {calendarYear + 543}
-                                </div>
-                                <Button size="sm" variant="outline" onClick={handleNextMonth}>
-                                    เดือนถัดไป &rarr;
-                                </Button>
-                            </div>
-                        </div>
-
-                        {isLoadingCalendar ? (
-                            <div className="flex items-center justify-center py-12 text-sm text-gray-400">
-                                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mr-2"></div>
-                                กำลังโหลดปฏิทินความจุคิว...
-                            </div>
-                        ) : (
-                            <div>
-                                {/* Calendar Header (Days of week) */}
-                                <div className="grid grid-cols-7 gap-2 text-center text-xs font-bold text-gray-400 uppercase mb-2">
-                                    <div className="py-1 text-red-500">อา.</div>
-                                    <div className="py-1 text-gray-600">จ.</div>
-                                    <div className="py-1 text-gray-600">อ.</div>
-                                    <div className="py-1 text-gray-600">พ.</div>
-                                    <div className="py-1 text-gray-600">พฤ.</div>
-                                    <div className="py-1 text-gray-600">ศ.</div>
-                                    <div className="py-1 text-blue-600">ส.</div>
-                                </div>
-
-                                {/* Calendar Days Grid */}
-                                <div className="grid grid-cols-7 gap-2">
-                                    {renderCalendarCells()}
-                                </div>
-                            </div>
-                        )}
-                    </Card>
+                    <MonthlyCalendar
+                        branchId={filterBranch}
+                        branchName={branches.find(b => b.BranchID.toString() === filterBranch)?.BranchName || ''}
+                        searchQuery={searchQuery}
+                        selectedDate={filterDate}
+                        onSelectDate={setFilterDate}
+                        onNewBooking={handleNewBookingRedirect}
+                        refreshKey={calendarRefreshKey}
+                    />
                 )}
-
 
 
                 {/* Booking List Table */}
@@ -1076,7 +845,7 @@ function BookingsPageContent() {
                 onSuccess={() => {
                     fetchBookings(pagination.page);
                     fetchDailySlots();
-                    fetchCalendarData();
+                    refreshCalendar();
                     fetchOverdueCount();
                 }}
                 onError={(message) => {
@@ -1106,7 +875,7 @@ function BookingsPageContent() {
                 filterDate={filterDate}
                 onSaved={() => {
                     fetchDailySlots();
-                    fetchCalendarData();
+                    refreshCalendar();
                 }}
                 onError={(title, message) => setActionModal({
                     isOpen: true, title, message, type: 'error', reasonText: '',
@@ -1122,7 +891,7 @@ function BookingsPageContent() {
                 onSaved={() => {
                     fetchBookings();
                     fetchDailySlots();
-                    fetchCalendarData();
+                    refreshCalendar();
                     fetchOverdueCount();
                 }}
             />
