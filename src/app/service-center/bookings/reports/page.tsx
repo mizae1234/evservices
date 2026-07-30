@@ -39,12 +39,12 @@ export default function BookingReportPage() {
     const [filterBranch, setFilterBranch] = useState(isAdmin ? 'all' : session?.user?.branchId || '');
     const [filterDateFrom, setFilterDateFrom] = useState(() => {
         const d = new Date();
-        d.setDate(1); // First day of current month
+        d.setDate(d.getDate() - 7); // 7 days ago
         return d.toISOString().split('T')[0];
     });
     const [filterDateTo, setFilterDateTo] = useState(() => {
         const d = new Date();
-        d.setMonth(d.getMonth() + 1, 0); // Last day of current month
+        d.setDate(d.getDate() + 30); // 30 days from today
         return d.toISOString().split('T')[0];
     });
     const [searchQuery, setSearchQuery] = useState('');
