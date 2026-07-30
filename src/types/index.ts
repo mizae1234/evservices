@@ -193,3 +193,20 @@ export interface ClaimFilter {
     page?: number;
     pageSize?: number;
 }
+
+// ==========================================
+// Booking Types
+// ==========================================
+
+export interface SlotAvailability {
+    StartTime: string;
+    EndTime: string;
+    MaxQueue: number;
+    OriginalMaxQueue?: number;
+    BookedCount: number;
+    IsAvailable: boolean;
+    IsOverridden?: boolean;
+    IsSlotClosed?: boolean;
+    OverrideReason?: string | null;
+}
+

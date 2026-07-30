@@ -18,8 +18,10 @@ import {
 } from '@/components/ui';
 import { Header } from '@/components/layouts';
 import { formatDate } from '@/lib/utils';
-import { Branch } from '@/types';
+import { Branch, SlotAvailability } from '@/types';
 import { Plus, Settings, Check, X, ClipboardCopy, Search, Calendar, Clock, Pencil, PhoneCall, Timer } from 'lucide-react';
+import { CSStatusModal } from '@/components/bookings/modals/CSStatusModal';
+import { RescheduleModal } from '@/components/bookings/modals/RescheduleModal';
 
 interface Booking {
     BookingID: number;
@@ -45,18 +47,6 @@ interface Booking {
     CSStatus: string;
     BayID?: number | null;
     Logs?: any[];
-}
-
-interface SlotAvailability {
-    StartTime: string;
-    EndTime: string;
-    MaxQueue: number;
-    OriginalMaxQueue?: number;
-    BookedCount: number;
-    IsAvailable: boolean;
-    IsOverridden?: boolean;
-    IsSlotClosed?: boolean;
-    OverrideReason?: string | null;
 }
 
 function BookingsPageContent() {
@@ -130,9 +120,6 @@ function BookingsPageContent() {
     // CS Status Update Modal
     const [isCSModalOpen, setIsCSModalOpen] = useState(false);
     const [selectedCSBooking, setSelectedCSBooking] = useState<Booking | null>(null);
-    const [csNewStatus, setCsNewStatus] = useState('FOLLOW_UP');
-    const [csNote, setCsNote] = useState('');
-    const [isUpdatingCS, setIsUpdatingCS] = useState(false);
 
     // Custom Action Confirmation Modal (Replaces native confirm / prompt / alert)
     const [actionModal, setActionModal] = useState<{
@@ -167,14 +154,6 @@ function BookingsPageContent() {
 
     const [selectedBookingForReschedule, setSelectedBookingForReschedule] = useState<Booking | null>(null);
     const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
-    const [rescheduleDate, setRescheduleDate] = useState('');
-    const [rescheduleSlot, setRescheduleSlot] = useState<{ StartTime: string; EndTime: string } | null>(null);
-    const [rescheduleReason, setRescheduleReason] = useState('');
-    const [rescheduleSlots, setRescheduleSlots] = useState<SlotAvailability[]>([]);
-    const [isLoadingRescheduleSlots, setIsLoadingRescheduleSlots] = useState(false);
-    const [isRescheduleBranchClosed, setIsRescheduleBranchClosed] = useState(false);
-    const [rescheduleBranchClosedReason, setRescheduleBranchClosedReason] = useState('');
-    const [isSavingReschedule, setIsSavingReschedule] = useState(false);
     
     // Booking Detail Modal state
     const [selectedBookingForDetail, setSelectedBookingForDetail] = useState<any | null>(null);
@@ -664,43 +643,7 @@ function BookingsPageContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session]);
 
-    // Fetch reschedule slots when date/booking changes
-    useEffect(() => {
-        const fetchRescheduleSlots = async () => {
-            if (!selectedBookingForReschedule || !rescheduleDate) {
-                setRescheduleSlots([]);
-                return;
-            }
-            setIsLoadingRescheduleSlots(true);
-            setIsRescheduleBranchClosed(false);
-            setRescheduleBranchClosedReason('');
-            try {
-                const branchId = selectedBookingForReschedule.BranchID;
-                const res = await fetch(`/api/bookings/slots?branchId=${branchId}&date=${rescheduleDate}`, { cache: 'no-store' });
-                const data = await res.json();
-                if (data.success) {
-                    if (data.isClosed) {
-                        setIsRescheduleBranchClosed(true);
-                        setRescheduleBranchClosedReason(data.reason || 'สาขาปิดทำการ');
-                        setRescheduleSlots([]);
-                    } else {
-                        setRescheduleSlots(data.data || []);
-                    }
-                } else {
-                    setRescheduleSlots([]);
-                }
-            } catch (err) {
-                console.error('Error fetching reschedule slots:', err);
-                setRescheduleSlots([]);
-            } finally {
-                setIsLoadingRescheduleSlots(false);
-            }
-        };
 
-        if (isRescheduleModalOpen) {
-            fetchRescheduleSlots();
-        }
-    }, [isRescheduleModalOpen, rescheduleDate, selectedBookingForReschedule]);
 
     const fetchOverdueCount = async () => {
         try {
@@ -863,66 +806,41 @@ function BookingsPageContent() {
             return;
         }
         setSelectedBookingForReschedule(booking);
-        const originalDateStr = toDateInputString(booking.BookingDate);
-        const todayStr = new Date().toISOString().split('T')[0];
-        setRescheduleDate(originalDateStr < todayStr ? todayStr : originalDateStr);
-        setRescheduleSlot({ StartTime: booking.StartTime, EndTime: booking.EndTime });
-        setRescheduleReason('');
         setIsRescheduleModalOpen(true);
     };
 
-    const handleSaveReschedule = async () => {
-        if (!selectedBookingForReschedule || !rescheduleDate || !rescheduleSlot) return;
-        if (!rescheduleReason.trim()) {
-            setActionModal({
-                isOpen: true,
-                title: 'กรอกข้อมูลไม่ครบถ้วน',
-                message: 'กรุณากรอกเหตุผลในการเลื่อนคิว',
-                type: 'info',
-                reasonText: '',
-            });
-            return;
-        }
+    const openCSModal = (booking: Booking) => {
+        setSelectedCSBooking(booking);
+        setIsCSModalOpen(true);
+    };
 
-        setIsSavingReschedule(true);
+    const handleSaveCSStatus = async (bookingId: number, csStatus: string, note: string) => {
         try {
-            const res = await fetch(`/api/bookings/${selectedBookingForReschedule.BookingID}`, {
-                method: 'PUT',
+            const res = await fetch(`/api/bookings/${bookingId}/cs-status`, {
+                method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    BookingDate: rescheduleDate,
-                    StartTime: rescheduleSlot.StartTime,
-                    EndTime: rescheduleSlot.EndTime,
-                    RescheduleReason: rescheduleReason.trim(),
-                }),
+                body: JSON.stringify({ csStatus, note })
             });
-            const data = await res.json();
-            if (data.success) {
-                setIsRescheduleModalOpen(false);
-                fetchBookings();
-                fetchDailySlots();
-                fetchCalendarData();
-                fetchOverdueCount();
+            if (res.ok) {
+                fetchBookings(pagination.page);
             } else {
                 setActionModal({
                     isOpen: true,
-                    title: 'เลื่อนคิวไม่สำเร็จ',
-                    message: data.error || 'ไม่สามารถเลื่อนคิวได้',
+                    title: 'อัปเดตไม่สำเร็จ',
+                    message: 'ไม่สามารถบันทึกสถานะ CS ได้',
                     type: 'error',
                     reasonText: '',
                 });
             }
-        } catch (err) {
-            console.error('Error rescheduling booking:', err);
+        } catch (error) {
+            console.error(error);
             setActionModal({
                 isOpen: true,
                 title: 'เกิดข้อผิดพลาด',
-                message: 'เกิดข้อผิดพลาดในการเลื่อนคิว',
+                message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
                 type: 'error',
                 reasonText: '',
             });
-        } finally {
-            setIsSavingReschedule(false);
         }
     };
 
@@ -948,44 +866,7 @@ function BookingsPageContent() {
 
     const handleCSUpdateClick = (booking: Booking) => {
         setSelectedCSBooking(booking);
-        setCsNewStatus(booking.CSStatus === 'PENDING' ? 'FOLLOW_UP' : booking.CSStatus);
-        setCsNote('');
         setIsCSModalOpen(true);
-    };
-
-    const submitCSStatus = async () => {
-        if (!selectedCSBooking) return;
-        setIsUpdatingCS(true);
-        try {
-            const res = await fetch(`/api/bookings/${selectedCSBooking.BookingID}/cs-status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ csStatus: csNewStatus, note: csNote })
-            });
-            if (res.ok) {
-                setIsCSModalOpen(false);
-                fetchBookings(pagination.page);
-            } else {
-                setActionModal({
-                    isOpen: true,
-                    title: 'อัปเดตไม่สำเร็จ',
-                    message: 'ไม่สามารถบันทึกสถานะ CS ได้',
-                    type: 'error',
-                    reasonText: '',
-                });
-            }
-        } catch (error) {
-            console.error(error);
-            setActionModal({
-                isOpen: true,
-                title: 'เกิดข้อผิดพลาด',
-                message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
-                type: 'error',
-                reasonText: '',
-            });
-        } finally {
-            setIsUpdatingCS(false);
-        }
     };
 
     const getStatusVariant = (status: number) => {
@@ -1372,155 +1253,26 @@ function BookingsPageContent() {
                 )}
             </div>
 
-            {/* Reschedule Modal */}
-            <Modal
+            <RescheduleModal
                 isOpen={isRescheduleModalOpen}
                 onClose={() => setIsRescheduleModalOpen(false)}
-                title="เลื่อนนัดหมาย (Reschedule)"
-                size="md"
-            >
-                {selectedBookingForReschedule && (
-                    <div className="space-y-4">
-                        <div>
-                            <p className="text-xs text-gray-500 font-semibold uppercase">รายละเอียดคิวเดิม</p>
-                            <div className="mt-1 p-3 bg-gray-50 rounded-lg text-sm text-gray-700">
-                                <div><strong>เลขที่จอง:</strong> {selectedBookingForReschedule.BookingNo}</div>
-                                <div><strong>ลูกค้า:</strong> {selectedBookingForReschedule.CustomerName} ({selectedBookingForReschedule.CarRegister})</div>
-                                <div><strong>คิวเดิม:</strong> {formatDate(selectedBookingForReschedule.BookingDate)} ({selectedBookingForReschedule.StartTime} - {selectedBookingForReschedule.EndTime} น.)</div>
-                                <div><strong>สาขา:</strong> {selectedBookingForReschedule.Branch.BranchName}</div>
-                            </div>
-                        </div>
-
-                        {/* Date selection */}
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-1">เลือกวันที่จองใหม่ *</label>
-                            <input
-                                type="date"
-                                min={new Date().toISOString().split('T')[0]}
-                                value={rescheduleDate}
-                                onChange={(e) => {
-                                    setRescheduleDate(e.target.value);
-                                    setRescheduleSlot(null);
-                                }}
-                                className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900 focus:ring-blue-500 focus:border-blue-500"
-                            />
-                        </div>
-
-                        {/* Slots selection */}
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-1">เลือกสล็อตเวลาใหม่ *</label>
-                            {isLoadingRescheduleSlots ? (
-                                <div className="text-sm text-gray-400 py-3 flex items-center justify-center">
-                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                                    กำลังโหลดเวลาว่าง...
-                                </div>
-                            ) : isRescheduleBranchClosed ? (
-                                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-medium rounded-lg">
-                                    🔴 สาขาปิดบริการ: {rescheduleBranchClosedReason}
-                                </div>
-                            ) : rescheduleSlots.length === 0 ? (
-                                <div className="text-sm text-gray-400 py-3 text-center">
-                                    ไม่มีการตั้งค่าเวลาคิวในวันที่เลือก
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-2">
-                                    {rescheduleSlots.map((slot) => {
-                                        const isSameSlot = toDateInputString(selectedBookingForReschedule.BookingDate) === rescheduleDate && 
-                                                           selectedBookingForReschedule.StartTime === slot.StartTime && 
-                                                           selectedBookingForReschedule.EndTime === slot.EndTime;
-                                        
-                                        const isFull = !slot.IsAvailable && !isSameSlot;
-                                        const isSelected = rescheduleSlot?.StartTime === slot.StartTime && rescheduleSlot?.EndTime === slot.EndTime;
-
-                                        return (
-                                            <button
-                                                key={slot.StartTime}
-                                                type="button"
-                                                disabled={isFull}
-                                                onClick={() => setRescheduleSlot({ StartTime: slot.StartTime, EndTime: slot.EndTime })}
-                                                className={`p-2.5 rounded-lg border text-xs text-left transition-all ${
-                                                    isSelected
-                                                        ? 'bg-blue-600 text-white border-blue-600 font-bold'
-                                                        : isFull
-                                                            ? 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
-                                                            : 'bg-white border-gray-200 text-gray-700 hover:border-blue-300 hover:bg-blue-50/10'
-                                                }`}
-                                            >
-                                                <div className="font-semibold">{slot.StartTime} - {slot.EndTime} น.</div>
-                                                <div className={`mt-0.5 text-[10px] ${isSelected ? 'text-blue-100' : isFull ? 'text-gray-300' : 'text-gray-500'}`}>
-                                                    {isSameSlot ? 'คิวเดิมของคุณ' : `จองแล้ว ${slot.BookedCount}/${slot.MaxQueue}`}
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Reschedule Reason */}
-                        <div>
-                            <label className="block text-xs font-bold text-gray-700 mb-1">ระบุเหตุผลการเลื่อนคิว *</label>
-                            <textarea
-                                placeholder="เช่น ลูกค้าขอเลื่อนเนื่องจากติดธุระด่วน / ปรับเวลานัดใหม่..."
-                                value={rescheduleReason}
-                                onChange={(e) => setRescheduleReason(e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg p-2 text-sm text-gray-900 placeholder-gray-500 h-20 focus:ring-blue-500 focus:border-blue-500"
-                                required
-                            />
-                        </div>
-
-                        {/* Warning: ไมล์อาจเกินระยะเช็ค */}
-                        {rescheduleDate && selectedBookingForReschedule.Mileage > 0 && selectedBookingForReschedule.LastMileage > 0 && (() => {
-                            const targetMileage = selectedBookingForReschedule.Mileage;
-                            const lastMileage = selectedBookingForReschedule.LastMileage;
-                            const kmRemaining = targetMileage - lastMileage;
-                            if (kmRemaining <= 0) return null;
-                            const today = new Date();
-                            today.setHours(0, 0, 0, 0);
-                            const newDate = new Date(rescheduleDate);
-                            newDate.setHours(0, 0, 0, 0);
-                            const daysUntil = Math.max(0, Math.ceil((newDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
-                            const estimated = lastMileage + (daysUntil * 400);
-                            if (estimated > targetMileage) {
-                                return (
-                                    <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3">
-                                        <p className="font-bold text-amber-900 text-sm flex items-center gap-1.5">
-                                            ⚠️ ไมล์อาจเกินระยะเช็คที่เลือก
-                                        </p>
-                                        <p className="text-xs text-amber-800 mt-1 leading-relaxed">
-                                            ไมล์ปัจจุบัน <strong>{lastMileage.toLocaleString()}</strong> กม. → ระยะเช็ค <strong>{targetMileage.toLocaleString()}</strong> กม.
-                                            (เหลืออีก <strong>{kmRemaining.toLocaleString()}</strong> กม.)
-                                        </p>
-                                        <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
-                                            เฉลี่ยวิ่งวันละ 400 กม. อีก <strong>{daysUntil}</strong> วัน
-                                            ไมล์โดยประมาณวันนัดใหม่จะอยู่ที่ <strong>~{estimated.toLocaleString()}</strong> กม.
-                                        </p>
-                                    </div>
-                                );
-                            }
-                            return null;
-                        })()}
-
-                        {/* Action buttons */}
-                        <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
-                            <Button
-                                variant="outline"
-                                onClick={() => setIsRescheduleModalOpen(false)}
-                                disabled={isSavingReschedule}
-                            >
-                                ยกเลิก
-                            </Button>
-                            <Button
-                                onClick={handleSaveReschedule}
-                                disabled={isSavingReschedule || !rescheduleDate || !rescheduleSlot || !rescheduleReason.trim()}
-                                className="bg-blue-600 hover:bg-blue-700 text-white"
-                            >
-                                {isSavingReschedule ? 'กำลังบันทึก...' : 'บันทึกการเลื่อนคิว'}
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
+                booking={selectedBookingForReschedule}
+                onSuccess={() => {
+                    fetchBookings(pagination.page);
+                    fetchDailySlots();
+                    fetchCalendarData();
+                    fetchOverdueCount();
+                }}
+                onError={(message) => {
+                    setActionModal({
+                        isOpen: true,
+                        title: 'เลื่อนคิวไม่สำเร็จ',
+                        message: message,
+                        type: 'error',
+                        reasonText: '',
+                    });
+                }}
+            />
 
             {/* Booking Detail Modal */}
             <Modal
@@ -2018,50 +1770,12 @@ function BookingsPageContent() {
                 )}
             </Modal>
             {/* CS Call Center Update Modal */}
-            <Modal isOpen={isCSModalOpen} onClose={() => !isUpdatingCS && setIsCSModalOpen(false)} title="อัปเดตสถานะการติดต่อลูกค้า (CS)">
-                {selectedCSBooking && (
-                    <div className="space-y-4 pt-4">
-                        <div className="bg-blue-50 p-3 rounded-lg text-sm border border-blue-100 text-blue-900">
-                            <strong>เลขจอง:</strong> {selectedCSBooking.BookingNo} <br />
-                            <strong>ลูกค้า:</strong> {selectedCSBooking.CustomerName} ({selectedCSBooking.CustomerPhone || 'ไม่มีเบอร์'})
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">สถานะการติดต่อ (CS)</label>
-                            <Select
-                                value={csNewStatus}
-                                onChange={(e) => setCsNewStatus(e.target.value)}
-                                className="w-full"
-                                options={[
-                                    { value: 'FOLLOW_UP', label: 'รอดำเนินการ / ติดตามผล (Follow up)' },
-                                    { value: 'CONFIRMED', label: 'ลูกค้ายืนยันแล้ว (Confirmed)' },
-                                    { value: 'NO_ANSWER', label: 'ติดต่อไม่ได้ / โทรไม่รับสาย (No Answer)' }
-                                ]}
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">บันทึกเพิ่มเติม (Note)</label>
-                            <textarea
-                                value={csNote}
-                                onChange={(e) => setCsNote(e.target.value)}
-                                rows={3}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-gray-900 placeholder:text-gray-400"
-                                placeholder="เช่น โทรไปไม่รับสาย จะโทรใหม่ตอนบ่าย..."
-                            ></textarea>
-                        </div>
-
-                        <div className="flex justify-end gap-3 mt-6">
-                            <Button variant="outline" onClick={() => setIsCSModalOpen(false)} disabled={isUpdatingCS}>
-                                ยกเลิก
-                            </Button>
-                            <Button className="bg-orange-500 hover:bg-orange-600 text-white" onClick={submitCSStatus} disabled={isUpdatingCS}>
-                                {isUpdatingCS ? 'กำลังบันทึก...' : 'บันทึกสถานะ'}
-                            </Button>
-                        </div>
-                    </div>
-                )}
-            </Modal>
+            <CSStatusModal
+                isOpen={isCSModalOpen}
+                onClose={() => setIsCSModalOpen(false)}
+                booking={selectedCSBooking}
+                onSave={handleSaveCSStatus}
+            />
             {/* Action Confirmation & Alert Modal (Replaces browser confirm/prompt/alert) */}
             <Modal isOpen={actionModal.isOpen} onClose={() => setActionModal(prev => ({ ...prev, isOpen: false }))} title={actionModal.title}>
                 <div className="space-y-4 pt-2">

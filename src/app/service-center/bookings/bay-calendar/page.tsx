@@ -28,6 +28,8 @@ interface BayBooking {
     DurationMinutes: number | null;
     BayID?: number | null;
     BookingDate: string;
+    Mileage?: number;
+    LastMileage?: number;
 }
 
 interface AvailableSlot {
@@ -288,6 +290,7 @@ function BayCalendarPageInner() {
             const res = await fetch(`/api/bookings/${booking.BookingID}`);
             const data = await res.json();
             if (data.success) {
+                setSelectedBooking(data.data);
                 setBookingLogs(data.data.Logs || []);
             }
         } catch (err) {
@@ -473,6 +476,7 @@ function BayCalendarPageInner() {
             const res = await fetch(`/api/bookings/${bookingId}`);
             const data = await res.json();
             if (data.success) {
+                setSelectedBooking(data.data);
                 setBookingLogs(data.data.Logs || []);
             }
         } catch (err) {
@@ -940,6 +944,37 @@ function BayCalendarPageInner() {
                                                 className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                             />
                                         </div>
+
+                                        {/* Warning: ไมล์อาจเกินระยะเช็ค */}
+                                        {rescheduleDate && selectedBooking && selectedBooking.Mileage && selectedBooking.Mileage > 0 && selectedBooking.LastMileage && selectedBooking.LastMileage > 0 && (() => {
+                                            const targetMileage = selectedBooking.Mileage;
+                                            const lastMileage = selectedBooking.LastMileage;
+                                            const kmRemaining = targetMileage - lastMileage;
+                                            if (kmRemaining <= 0) return null;
+                                            const today = new Date();
+                                            today.setHours(0, 0, 0, 0);
+                                            const newDate = new Date(rescheduleDate);
+                                            newDate.setHours(0, 0, 0, 0);
+                                            const daysUntil = Math.max(0, Math.ceil((newDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+                                            const estimated = lastMileage + (daysUntil * 400);
+                                            if (estimated > targetMileage) {
+                                                return (
+                                                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                                                        <span className="text-amber-500 text-sm">⚠️</span>
+                                                        <div>
+                                                            <p className="text-xs font-bold text-amber-900">
+                                                                คำเตือน: ระยะไมล์อาจเกินกำหนด ณ วันที่นัดใหม่
+                                                            </p>
+                                                            <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                                                                เฉลี่ยวิ่งวันละ 400 กม. อีก <strong>{daysUntil}</strong> วัน
+                                                                ไมล์โดยประมาณวันนัดใหม่จะอยู่ที่ <strong>~{estimated.toLocaleString()}</strong> กม.
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                     </div>
                                     <div className="flex gap-2 justify-end pt-3">
                                         <Button variant="outline" size="sm" onClick={() => setIsRescheduling(false)}>
