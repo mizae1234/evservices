@@ -4,7 +4,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import {
     Card,
@@ -19,7 +19,7 @@ import {
 import { Header } from '@/components/layouts';
 import { formatDate } from '@/lib/utils';
 import { Branch } from '@/types';
-import { Plus, Settings, Check, X, ClipboardCopy, Search, Calendar, Clock, Pencil } from 'lucide-react';
+import { Plus, Settings, Check, X, ClipboardCopy, Search, Calendar, Clock, Pencil, PhoneCall, Timer } from 'lucide-react';
 
 interface Booking {
     BookingID: number;
@@ -28,6 +28,7 @@ interface Booking {
     StartTime: string;
     EndTime: string;
     CustomerName: string;
+    CustomerPhone: string | null;
     CarModel: string;
     CarRegister: string;
     VinNo: string | null;
@@ -41,6 +42,7 @@ interface Booking {
     Branch: { BranchName: string };
     BranchID: number;
     BookingType: string;
+    CSStatus: string;
     BayID?: number | null;
     Logs?: any[];
 }
@@ -59,16 +61,41 @@ interface SlotAvailability {
 
 export default function BookingsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { data: session } = useSession();
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [branches, setBranches] = useState<Branch[]>([]);
 
     // Filters
-    const [filterDate, setFilterDate] = useState<string>(new Date().toISOString().split('T')[0]);
+    const dateFromParam = searchParams.get('date');
+    const searchFromParam = searchParams.get('search');
+    const [filterDate, setFilterDate] = useState<string>(
+        dateFromParam || new Date().toISOString().split('T')[0]
+    );
     const [filterBranch, setFilterBranch] = useState<string>('');
     const [filterStatus] = useState<string>('');
-    const [searchQuery, setSearchQuery] = useState<string>('');
+    const [searchQuery, setSearchQuery] = useState<string>(searchFromParam || '');
+
+    useEffect(() => {
+        const dParam = searchParams.get('date');
+        if (dParam) {
+            setFilterDate(dParam);
+            const parts = dParam.split('-');
+            if (parts.length === 3) {
+                const y = parseInt(parts[0]);
+                const m = parseInt(parts[1]);
+                if (y && m) {
+                    setCalendarYear(y);
+                    setCalendarMonth(m);
+                }
+            }
+        }
+        const sParam = searchParams.get('search');
+        if (sParam) {
+            setSearchQuery(sParam);
+        }
+    }, [searchParams]);
 
     // Pagination
     const [pagination, setPagination] = useState({
@@ -100,6 +127,29 @@ export default function BookingsPage() {
     }>>({});
     const [isLoadingCalendar, setIsLoadingCalendar] = useState(false);
 
+    // CS Status Update Modal
+    const [isCSModalOpen, setIsCSModalOpen] = useState(false);
+    const [selectedCSBooking, setSelectedCSBooking] = useState<Booking | null>(null);
+    const [csNewStatus, setCsNewStatus] = useState('FOLLOW_UP');
+    const [csNote, setCsNote] = useState('');
+    const [isUpdatingCS, setIsUpdatingCS] = useState(false);
+
+    // Custom Action Confirmation Modal (Replaces native confirm / prompt / alert)
+    const [actionModal, setActionModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        type: 'confirm' | 'cancel_reason' | 'info' | 'error';
+        reasonText: string;
+        onConfirm?: (reason?: string) => void;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        type: 'confirm',
+        reasonText: '',
+    });
+
     const canManageOverride = session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER';
 
     // Slot Override Modal state
@@ -129,6 +179,85 @@ export default function BookingsPage() {
     // Booking Detail Modal state
     const [selectedBookingForDetail, setSelectedBookingForDetail] = useState<any | null>(null);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+    // Duration Extension Modal state
+    const [isDurationModalOpen, setIsDurationModalOpen] = useState(false);
+    const [selectedBookingForDuration, setSelectedBookingForDuration] = useState<Booking | null>(null);
+    const [durationEndTime, setDurationEndTime] = useState('');
+    const [durationReason, setDurationReason] = useState('');
+    const [durationError, setDurationError] = useState('');
+    const [isSavingDuration, setIsSavingDuration] = useState(false);
+
+    const addMinutesToTime = (timeStr: string, minsToAdd: number) => {
+        if (!timeStr) return '';
+        const [h, m] = timeStr.split(':').map(Number);
+        const date = new Date();
+        date.setHours(h, m + minsToAdd, 0, 0);
+        const newH = String(date.getHours()).padStart(2, '0');
+        const newM = String(date.getMinutes()).padStart(2, '0');
+        return `${newH}:${newM}`;
+    };
+
+    const calculateDurationText = (start: string, end: string) => {
+        if (!start || !end) return '';
+        const [sh, sm] = start.split(':').map(Number);
+        const [eh, em] = end.split(':').map(Number);
+        const startMins = sh * 60 + sm;
+        let endMins = eh * 60 + em;
+        if (endMins < startMins) endMins += 24 * 60;
+        const diff = endMins - startMins;
+        const hours = Math.floor(diff / 60);
+        const mins = diff % 60;
+        let text = '';
+        if (hours > 0) text += `${hours} ชม. `;
+        if (mins > 0) text += `${mins} นาที`;
+        return text || '0 นาที';
+    };
+
+    const handleOpenDurationModal = (booking: Booking) => {
+        setSelectedBookingForDuration(booking);
+        setDurationEndTime(booking.EndTime);
+        setDurationReason('');
+        setDurationError('');
+        setIsDurationModalOpen(true);
+    };
+
+    const handleSaveDuration = async () => {
+        if (!selectedBookingForDuration || !durationEndTime) return;
+        setDurationError('');
+
+        if (durationEndTime <= selectedBookingForDuration.StartTime) {
+            setDurationError('เวลาสิ้นสุดใหม่ต้องมากกว่าเวลาเริ่มต้น');
+            return;
+        }
+
+        setIsSavingDuration(true);
+        try {
+            const res = await fetch(`/api/bookings/${selectedBookingForDuration.BookingID}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    EndTime: durationEndTime,
+                    DurationReason: durationReason.trim() || 'ขยายเวลาซ่อม',
+                }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setIsDurationModalOpen(false);
+                fetchBookings();
+                fetchDailySlots();
+                fetchCalendarData();
+                fetchOverdueCount();
+            } else {
+                setDurationError(data.error || 'เกิดข้อผิดพลาดในการบันทึก');
+            }
+        } catch (err) {
+            console.error(err);
+            setDurationError('เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+        } finally {
+            setIsSavingDuration(false);
+        }
+    };
     const [isLoadingDetail, setIsLoadingDetail] = useState(false);
     const [newNoteText, setNewNoteText] = useState('');
     const [isSavingNote, setIsSavingNote] = useState(false);
@@ -228,20 +357,29 @@ export default function BookingsPage() {
                 fetchDailySlots();
                 fetchCalendarData();
             } else {
-                alert(data.error || 'บันทึกไม่สำเร็จ');
+                setActionModal({
+                    isOpen: true,
+                    title: 'บันทึกไม่สำเร็จ',
+                    message: data.error || 'ไม่สามารถบันทึกการปรับแต่งสล็อตได้',
+                    type: 'error',
+                    reasonText: '',
+                });
             }
         } catch (err) {
             console.error('Error saving override:', err);
-            alert('เกิดข้อผิดพลาด');
+            setActionModal({
+                isOpen: true,
+                title: 'เกิดข้อผิดพลาด',
+                message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+                type: 'error',
+                reasonText: '',
+            });
         } finally {
             setIsSavingOverride(false);
         }
     };
 
-    const handleRemoveOverride = async (slot: SlotAvailability) => {
-        if (!filterBranch || !filterDate) return;
-        if (!confirm(`ต้องการรีเซ็ตสล็อต ${slot.StartTime}-${slot.EndTime} กลับค่า default ใช่หรือไม่?`)) return;
-
+    const executeRemoveOverride = async (slot: SlotAvailability) => {
         try {
             // First get the override ID
             const res = await fetch(`/api/bookings/slot-overrides?branchId=${filterBranch}&date=${filterDate}`);
@@ -259,14 +397,38 @@ export default function BookingsPage() {
                         fetchDailySlots();
                         fetchCalendarData();
                     } else {
-                        alert(delData.error || 'ลบไม่สำเร็จ');
+                        setActionModal({
+                            isOpen: true,
+                            title: 'ลบไม่สำเร็จ',
+                            message: delData.error || 'ไม่สามารถรีเซ็ตสล็อตกลับค่าเริ่มต้นได้',
+                            type: 'error',
+                            reasonText: '',
+                        });
                     }
                 }
             }
         } catch (err) {
             console.error('Error removing override:', err);
-            alert('เกิดข้อผิดพลาด');
+            setActionModal({
+                isOpen: true,
+                title: 'เกิดข้อผิดพลาด',
+                message: 'เกิดข้อผิดพลาดในการทำรายการ',
+                type: 'error',
+                reasonText: '',
+            });
         }
+    };
+
+    const handleRemoveOverride = (slot: SlotAvailability) => {
+        if (!filterBranch || !filterDate) return;
+        setActionModal({
+            isOpen: true,
+            title: 'รีเซ็ตสล็อตเวลา',
+            message: `คุณต้องการรีเซ็ตสล็อตเวลา ${slot.StartTime}-${slot.EndTime} น. กลับค่าเริ่มต้นใช่หรือไม่?`,
+            type: 'confirm',
+            reasonText: '',
+            onConfirm: () => executeRemoveOverride(slot),
+        });
     };
 
     const fetchCalendarData = async () => {
@@ -580,11 +742,11 @@ export default function BookingsPage() {
         }
     };
 
-    const fetchBookings = async () => {
+    const fetchBookings = async (page = 1) => {
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
-            params.set('page', pagination.page.toString());
+            params.set('page', page.toString());
             params.set('pageSize', pagination.pageSize.toString());
             
             if (showOverdueOnly) {
@@ -610,6 +772,7 @@ export default function BookingsPage() {
                 setBookings(data.data);
                 setPagination(prev => ({
                     ...prev,
+                    page,
                     total: data.total,
                     totalPages: data.totalPages,
                 }));
@@ -633,18 +796,7 @@ export default function BookingsPage() {
     };
 
     // Actions (Approve / Cancel)
-    const handleStatusUpdate = async (bookingId: number, status: number) => {
-        let reason = '';
-        if (status === 2) {
-            const userInput = prompt('กรุณาระบุเหตุผลในการยกเลิกคิว (เช่น ลูกค้าแจ้งยกเลิก, ข้อมูลไม่ถูกต้อง):');
-            if (userInput === null) return; // User cancelled the prompt
-            reason = userInput.trim() || 'ไม่ได้ระบุเหตุผล';
-        } else {
-            const confirmMsg = status === 1 ? 'ยืนยันอนุมัติคิวนี้ใช่หรือไม่?' 
-                : 'ยืนยันปิดงานคิว Retail นี้ใช่หรือไม่?';
-            if (!confirm(confirmMsg)) return;
-        }
-
+    const executeStatusUpdate = async (bookingId: number, status: number, reason: string) => {
         try {
             const res = await fetch(`/api/bookings/${bookingId}`, {
                 method: 'PUT',
@@ -658,11 +810,49 @@ export default function BookingsPage() {
                 fetchCalendarData();
                 fetchOverdueCount();
             } else {
-                alert(data.error || 'ดำเนินการล้มเหลว');
+                setActionModal({
+                    isOpen: true,
+                    title: 'เกิดข้อผิดพลาด',
+                    message: data.error || 'ดำเนินการล้มเหลว',
+                    type: 'error',
+                    reasonText: '',
+                });
             }
         } catch (err) {
             console.error('Error updating status:', err);
-            alert('เกิดข้อผิดพลาดในการทำรายการ');
+            setActionModal({
+                isOpen: true,
+                title: 'เกิดข้อผิดพลาด',
+                message: 'เกิดข้อผิดพลาดในการทำรายการ',
+                type: 'error',
+                reasonText: '',
+            });
+        }
+    };
+
+    const handleStatusUpdate = (bookingId: number, status: number) => {
+        if (status === 2) {
+            // Cancel with reason
+            setActionModal({
+                isOpen: true,
+                title: 'ยกเลิกการจองคิว',
+                message: 'กรุณาระบุเหตุผลในการยกเลิกคิว (เช่น ลูกค้าแจ้งยกเลิก, ข้อมูลไม่ถูกต้อง)',
+                type: 'cancel_reason',
+                reasonText: '',
+                onConfirm: (reason) => executeStatusUpdate(bookingId, 2, reason || 'ไม่ได้ระบุเหตุผล'),
+            });
+        } else {
+            // Approve or Close job
+            const title = status === 1 ? 'ยืนยันอนุมัติคิว' : 'ยืนยันปิดงาน Retail';
+            const message = status === 1 ? 'คุณต้องการยืนยันอนุมัติคิวการจองนี้ใช่หรือไม่?' : 'คุณต้องการยืนยันปิดงานคิว Retail นี้ใช่หรือไม่?';
+            setActionModal({
+                isOpen: true,
+                title,
+                message,
+                type: 'confirm',
+                reasonText: '',
+                onConfirm: () => executeStatusUpdate(bookingId, status, ''),
+            });
         }
     };
 
@@ -684,7 +874,13 @@ export default function BookingsPage() {
     const handleSaveReschedule = async () => {
         if (!selectedBookingForReschedule || !rescheduleDate || !rescheduleSlot) return;
         if (!rescheduleReason.trim()) {
-            alert('กรุณากรอกเหตุผลในการเลื่อนคิว');
+            setActionModal({
+                isOpen: true,
+                title: 'กรอกข้อมูลไม่ครบถ้วน',
+                message: 'กรุณากรอกเหตุผลในการเลื่อนคิว',
+                type: 'info',
+                reasonText: '',
+            });
             return;
         }
 
@@ -707,13 +903,24 @@ export default function BookingsPage() {
                 fetchDailySlots();
                 fetchCalendarData();
                 fetchOverdueCount();
-                alert('เลื่อนคิวสำเร็จ');
             } else {
-                alert(data.error || 'เลื่อนคิวไม่สำเร็จ');
+                setActionModal({
+                    isOpen: true,
+                    title: 'เลื่อนคิวไม่สำเร็จ',
+                    message: data.error || 'ไม่สามารถเลื่อนคิวได้',
+                    type: 'error',
+                    reasonText: '',
+                });
             }
         } catch (err) {
             console.error('Error rescheduling booking:', err);
-            alert('เกิดข้อผิดพลาดในการเลื่อนคิว');
+            setActionModal({
+                isOpen: true,
+                title: 'เกิดข้อผิดพลาด',
+                message: 'เกิดข้อผิดพลาดในการเลื่อนคิว',
+                type: 'error',
+                reasonText: '',
+            });
         } finally {
             setIsSavingReschedule(false);
         }
@@ -725,8 +932,59 @@ export default function BookingsPage() {
             case 1: return 'อนุมัติแล้ว';
             case 2: return 'ยกเลิก';
             case 3: return 'เปิดใบเคลมแล้ว';
-            case 4: return 'ปิดงานแล้ว';
-            default: return 'ไม่ระบุ';
+            case 4: return 'ปิดงาน';
+            default: return 'ไม่ทราบ';
+        }
+    };
+
+    const getCSStatusBadge = (csStatus: string) => {
+        switch (csStatus) {
+            case 'FOLLOW_UP': return <span className="mt-1 inline-block bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[10px] font-medium border border-orange-200">CS: ติดตามผล</span>;
+            case 'CONFIRMED': return <span className="mt-1 inline-block bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded text-[10px] font-medium border border-emerald-200">CS: ยืนยันแล้ว</span>;
+            case 'NO_ANSWER': return <span className="mt-1 inline-block bg-red-100 text-red-700 px-2 py-0.5 rounded text-[10px] font-medium border border-red-200">CS: โทรไม่รับสาย</span>;
+            default: return null;
+        }
+    };
+
+    const handleCSUpdateClick = (booking: Booking) => {
+        setSelectedCSBooking(booking);
+        setCsNewStatus(booking.CSStatus === 'PENDING' ? 'FOLLOW_UP' : booking.CSStatus);
+        setCsNote('');
+        setIsCSModalOpen(true);
+    };
+
+    const submitCSStatus = async () => {
+        if (!selectedCSBooking) return;
+        setIsUpdatingCS(true);
+        try {
+            const res = await fetch(`/api/bookings/${selectedCSBooking.BookingID}/cs-status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ csStatus: csNewStatus, note: csNote })
+            });
+            if (res.ok) {
+                setIsCSModalOpen(false);
+                fetchBookings(pagination.page);
+            } else {
+                setActionModal({
+                    isOpen: true,
+                    title: 'อัปเดตไม่สำเร็จ',
+                    message: 'ไม่สามารถบันทึกสถานะ CS ได้',
+                    type: 'error',
+                    reasonText: '',
+                });
+            }
+        } catch (error) {
+            console.error(error);
+            setActionModal({
+                isOpen: true,
+                title: 'เกิดข้อผิดพลาด',
+                message: 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์',
+                type: 'error',
+                reasonText: '',
+            });
+        } finally {
+            setIsUpdatingCS(false);
         }
     };
 
@@ -792,7 +1050,7 @@ export default function BookingsPage() {
                             <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={fetchBookings}
+                                onClick={() => fetchBookings()}
                                 className="absolute right-1 top-1 h-8 w-8 p-0"
                             >
                                 <Search className="h-4 w-4" />
@@ -962,7 +1220,10 @@ export default function BookingsPage() {
                                                         <div className="font-medium text-gray-900">{booking.CarRegister}</div>
                                                         <div className="text-xs text-gray-500">{booking.CarModel}</div>
                                                     </td>
-                                                    <td className="px-6 py-4">{booking.CustomerName}</td>
+                                                    <td className="px-6 py-4">
+                                                        <div>{booking.CustomerName}</div>
+                                                        {booking.CustomerPhone && <div className="text-xs text-gray-500">📞 {booking.CustomerPhone}</div>}
+                                                    </td>
                                                     <td className="px-6 py-4 text-right">
                                                         <div className="font-semibold text-gray-900">{booking.LastMileage.toLocaleString()} กม.</div>
                                                         {booking.ProjectType === 'ซ่อมทั่วไป' || booking.Mileage === 0 ? (
@@ -975,6 +1236,8 @@ export default function BookingsPage() {
                                                         <Badge variant={getStatusVariant(booking.Status) as 'default' | 'success' | 'warning' | 'danger' | 'info'}>
                                                             {getStatusText(booking.Status)}
                                                         </Badge>
+                                                        <br />
+                                                        {getCSStatusBadge(booking.CSStatus)}
                                                         {booking.Status === 2 && (() => {
                                                             const reason = getCancelReason(booking);
                                                             return reason ? (
@@ -1008,6 +1271,31 @@ export default function BookingsPage() {
                                                                     className="border-blue-200 text-blue-600 hover:bg-blue-50 p-1"
                                                                 >
                                                                     <Calendar className="w-4 h-4" />
+                                                                </Button>
+                                                            )}
+
+                                                            {/* Extend Duration button (Status 0 or 1) - Only for Branch & Admin */}
+                                                            {(booking.Status === 0 || booking.Status === 1) && !isCS && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    onClick={() => handleOpenDurationModal(booking)}
+                                                                    title="ขยาย/ปรับเวลาซ่อม"
+                                                                    variant="outline"
+                                                                    className="border-purple-200 text-purple-600 hover:bg-purple-50 p-1"
+                                                                >
+                                                                    <Timer className="w-4 h-4" />
+                                                                </Button>
+                                                            )}
+
+                                                            {/* CS Action Button */}
+                                                            {isCS && booking.Status !== 2 && booking.Status !== 4 && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    onClick={() => handleCSUpdateClick(booking)}
+                                                                    title="อัปเดตสถานะการโทร (CS)"
+                                                                    className="bg-orange-100 text-orange-700 hover:bg-orange-200 p-1.5"
+                                                                >
+                                                                    <PhoneCall className="w-4 h-4" />
                                                                 </Button>
                                                             )}
 
@@ -1181,6 +1469,38 @@ export default function BookingsPage() {
                             />
                         </div>
 
+                        {/* Warning: ไมล์อาจเกินระยะเช็ค */}
+                        {rescheduleDate && selectedBookingForReschedule.Mileage > 0 && selectedBookingForReschedule.LastMileage > 0 && (() => {
+                            const targetMileage = selectedBookingForReschedule.Mileage;
+                            const lastMileage = selectedBookingForReschedule.LastMileage;
+                            const kmRemaining = targetMileage - lastMileage;
+                            if (kmRemaining <= 0) return null;
+                            const today = new Date();
+                            today.setHours(0, 0, 0, 0);
+                            const newDate = new Date(rescheduleDate);
+                            newDate.setHours(0, 0, 0, 0);
+                            const daysUntil = Math.max(0, Math.ceil((newDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+                            const estimated = lastMileage + (daysUntil * 400);
+                            if (estimated > targetMileage) {
+                                return (
+                                    <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3">
+                                        <p className="font-bold text-amber-900 text-sm flex items-center gap-1.5">
+                                            ⚠️ ไมล์อาจเกินระยะเช็คที่เลือก
+                                        </p>
+                                        <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                                            ไมล์ปัจจุบัน <strong>{lastMileage.toLocaleString()}</strong> กม. → ระยะเช็ค <strong>{targetMileage.toLocaleString()}</strong> กม.
+                                            (เหลืออีก <strong>{kmRemaining.toLocaleString()}</strong> กม.)
+                                        </p>
+                                        <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                                            เฉลี่ยวิ่งวันละ 400 กม. อีก <strong>{daysUntil}</strong> วัน
+                                            ไมล์โดยประมาณวันนัดใหม่จะอยู่ที่ <strong>~{estimated.toLocaleString()}</strong> กม.
+                                        </p>
+                                    </div>
+                                );
+                            }
+                            return null;
+                        })()}
+
                         {/* Action buttons */}
                         <div className="flex justify-end gap-3 pt-3 border-t border-gray-100">
                             <Button
@@ -1207,6 +1527,7 @@ export default function BookingsPage() {
                 isOpen={isDetailModalOpen}
                 onClose={() => setIsDetailModalOpen(false)}
                 title="รายละเอียดการจองคิว"
+                size="2xl"
             >
                 {isLoadingDetail ? (
                     <div className="py-12 text-center text-gray-500">
@@ -1233,7 +1554,7 @@ export default function BookingsPage() {
                                     {selectedBookingForDetail.Status === 1 ? 'อนุมัติแล้ว' :
                                      selectedBookingForDetail.Status === 2 ? 'ยกเลิก' :
                                      selectedBookingForDetail.Status === 3 ? 'เปิดใบเคลมแล้ว' :
-                                     selectedBookingForDetail.Status === 4 ? 'ปิดงานแล้ว' :
+                                     selectedBookingForDetail.Status === 4 ? 'ปิดงาน' :
                                      'รอดำเนินการ'}
                                 </span>
                             </div>
@@ -1244,6 +1565,10 @@ export default function BookingsPage() {
                             <div>
                                 <span className="text-[10px] text-gray-400 block uppercase font-semibold">ชื่อลูกค้า</span>
                                 <span className="font-semibold text-gray-900">{selectedBookingForDetail.CustomerName}</span>
+                            </div>
+                            <div>
+                                <span className="text-[10px] text-gray-400 block uppercase font-semibold">เบอร์โทร</span>
+                                <span className="font-semibold text-gray-900">{selectedBookingForDetail.CustomerPhone || '-'}</span>
                             </div>
                             <div>
                                 <span className="text-[10px] text-gray-400 block uppercase font-semibold">สาขาที่จอง</span>
@@ -1305,6 +1630,36 @@ export default function BookingsPage() {
                             </div>
                         </div>
 
+                        {/* Request & Approval Timestamps */}
+                        <div className="grid grid-cols-2 gap-4 bg-blue-50/50 p-3 rounded-xl border border-blue-100 text-xs">
+                            <div>
+                                <span className="text-[10px] text-blue-600 block uppercase font-bold">📥 วันที่สร้างคำขอ (ส่งจอง)</span>
+                                <span className="font-semibold text-gray-900">
+                                    {selectedBookingForDetail.CreateDate
+                                        ? new Date(selectedBookingForDetail.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' }) + ' น.'
+                                        : '-'}
+                                </span>
+                            </div>
+                            <div>
+                                <span className="text-[10px] text-emerald-600 block uppercase font-bold">✅ วันที่อนุมัติคิว</span>
+                                <span className="font-semibold text-gray-900">
+                                    {(() => {
+                                        const approvedLog = selectedBookingForDetail.Logs?.find((l: any) => l.LogType === 'APPROVED' || l.LogType === 'AUTO_APPROVED');
+                                        if (approvedLog) {
+                                            return new Date(approvedLog.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' }) + ' น.';
+                                        }
+                                        if (selectedBookingForDetail.Status === 1) {
+                                            return selectedBookingForDetail.CreateDate
+                                                ? new Date(selectedBookingForDetail.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' }) + ' น.'
+                                                : 'อนุมัติแล้ว';
+                                        }
+                                        if (selectedBookingForDetail.Status === 2) return 'ยกเลิกแล้ว';
+                                        return '⏳ รอการอนุมัติ';
+                                    })()}
+                                </span>
+                            </div>
+                        </div>
+
                         {/* Timeline logs */}
                         <div className="space-y-1 pt-2 border-t border-gray-100">
                             <span className="text-[10px] text-gray-400 block uppercase font-semibold">บันทึกประวัติการเลื่อนคิวและโน้ตช่วยจำ</span>
@@ -1312,11 +1667,39 @@ export default function BookingsPage() {
                                 {(!selectedBookingForDetail.Logs || selectedBookingForDetail.Logs.length === 0) ? (
                                     <div className="text-xs text-gray-400 text-center py-4">ไม่มีประวัติการบันทึกคิวนี้</div>
                                 ) : (
-                                    selectedBookingForDetail.Logs.map((log: any) => {
-                                        let icon = '⚙️';
-                                        let bgColor = 'bg-gray-50 border-gray-200 text-gray-800';
-                                        let title = 'บันทึกระบบ';
-                                        if (log.LogType === 'RESCHEDULE') {
+                                    <>
+                                        {/* Fallback for creation date if older booking has no CREATED log */}
+                                        {selectedBookingForDetail.CreateDate && !selectedBookingForDetail.Logs?.some((l: any) => l.LogType === 'CREATED' || l.LogType === 'AUTO_APPROVED') && (
+                                            <div className="p-2 rounded-lg border text-xs bg-blue-50/50 border-blue-200 text-blue-950">
+                                                <div className="flex items-center justify-between font-bold mb-1">
+                                                    <span className="flex items-center gap-1">
+                                                        <span>📥</span>
+                                                        <span>ขอจองคิวในระบบ (วันเปิดคำขอ)</span>
+                                                    </span>
+                                                    <span className="text-[10px] font-normal text-gray-400">
+                                                        {new Date(selectedBookingForDetail.CreateDate).toLocaleString('th-TH', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', year: '2-digit' })} น.
+                                                    </span>
+                                                </div>
+                                                <div className="text-[11px] opacity-80">วันที่ลูกค้า/เจ้าหน้าที่ส่งคำขอจองคิวเข้ามาในระบบ</div>
+                                            </div>
+                                        )}
+                                        {selectedBookingForDetail.Logs.map((log: any) => {
+                                            let icon = '⚙️';
+                                            let bgColor = 'bg-gray-50 border-gray-200 text-gray-800';
+                                            let title = 'บันทึกระบบ';
+                                            if (log.LogType === 'CREATED') {
+                                                icon = '📥';
+                                                bgColor = 'bg-blue-50/50 border-blue-200 text-blue-950';
+                                                title = 'ขอจองคิว (รออนุมัติ)';
+                                        } else if (log.LogType === 'APPROVED' || log.LogType === 'AUTO_APPROVED') {
+                                            icon = '✅';
+                                            bgColor = 'bg-green-50/50 border-green-200 text-green-950';
+                                            title = log.LogType === 'AUTO_APPROVED' ? 'อนุมัติอัตโนมัติ' : 'อนุมัติการจองคิว';
+                                        } else if (log.LogType === 'REJECTED') {
+                                            icon = '🚫';
+                                            bgColor = 'bg-red-50/50 border-red-200 text-red-950';
+                                            title = 'ปฏิเสธคำขอจองคิว';
+                                        } else if (log.LogType === 'RESCHEDULE') {
                                             icon = '📅';
                                             bgColor = 'bg-blue-50/50 border-blue-200 text-blue-950';
                                             title = 'เลื่อนนัดหมาย';
@@ -1324,10 +1707,10 @@ export default function BookingsPage() {
                                             icon = '❌';
                                             bgColor = 'bg-red-50/50 border-red-200 text-red-950';
                                             title = 'ยกเลิกคิว';
-                                        } else if (log.LogType === 'NOTE') {
-                                            icon = '📝';
-                                            bgColor = 'bg-amber-50/50 border-amber-200 text-amber-950';
-                                            title = 'โน้ตเจ้าหน้าที่ (CS Note)';
+                                        } else if (log.LogType === 'NOTE' || log.LogType === 'CS_NOTE') {
+                                            icon = '📞';
+                                            bgColor = 'bg-orange-50/50 border-orange-200 text-orange-950';
+                                            title = 'บันทึกการติดตาม (CS Call Center)';
                                         }
                                         
                                         return (
@@ -1344,7 +1727,8 @@ export default function BookingsPage() {
                                                 <div className="whitespace-pre-wrap font-medium">{log.Content}</div>
                                             </div>
                                         );
-                                    })
+                                    })}
+                                    </>
                                 )}
                             </div>
                         </div>
@@ -1508,6 +1892,218 @@ export default function BookingsPage() {
                         <Button onClick={handleSaveOverride} isLoading={isSavingOverride}>
                             💾 บันทึกการปรับ
                         </Button>
+                    </div>
+                </div>
+            </Modal>
+            {/* Duration Extension Modal */}
+            <Modal
+                isOpen={isDurationModalOpen}
+                onClose={() => !isSavingDuration && setIsDurationModalOpen(false)}
+                title="⏱️ ขยาย / ปรับระยะเวลาซ่อม"
+            >
+                {selectedBookingForDuration && (
+                    <div className="space-y-4">
+                        {durationError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-semibold flex items-center gap-2">
+                                <span>❌</span>
+                                <span>{durationError}</span>
+                            </div>
+                        )}
+
+                        <div className="bg-purple-50 border border-purple-200 rounded-xl p-3.5 text-sm text-purple-900 leading-relaxed">
+                            <div className="font-bold flex items-center justify-between border-b border-purple-200/60 pb-2 mb-2">
+                                <span>เลขที่จอง: {selectedBookingForDuration.BookingNo}</span>
+                                <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full font-semibold">
+                                    {selectedBookingForDuration.CarRegister}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>ลูกค้า: <strong>{selectedBookingForDuration.CustomerName}</strong></div>
+                                <div>เวลาเริ่มต้นเดิม: <strong>{selectedBookingForDuration.StartTime} น.</strong></div>
+                                <div>เวลาสิ้นสุดเดิม: <strong>{selectedBookingForDuration.EndTime} น.</strong></div>
+                                <div>ระยะเวลาเดิม: <strong>{calculateDurationText(selectedBookingForDuration.StartTime, selectedBookingForDuration.EndTime)}</strong></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-gray-700 mb-2 uppercase tracking-wider">
+                                เลือกกดเพิ่มเวลาด่วน (Quick Add)
+                            </label>
+                            <div className="grid grid-cols-4 gap-2">
+                                {[
+                                    { label: '+30 นาที', mins: 30 },
+                                    { label: '+1 ชม.', mins: 60 },
+                                    { label: '+1.5 ชม.', mins: 90 },
+                                    { label: '+2 ชม.', mins: 120 },
+                                ].map((item) => {
+                                    const newEnd = addMinutesToTime(selectedBookingForDuration.EndTime, item.mins);
+                                    const isSelected = durationEndTime === newEnd;
+                                    return (
+                                        <button
+                                            key={item.label}
+                                            type="button"
+                                            onClick={() => setDurationEndTime(newEnd)}
+                                            className={`py-2 px-1 text-xs font-semibold rounded-lg border transition-all ${
+                                                isSelected
+                                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm ring-2 ring-purple-200'
+                                                    : 'bg-white hover:bg-purple-50 border-gray-200 text-purple-700'
+                                            }`}
+                                        >
+                                            {item.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 items-end">
+                            <Input
+                                label="เวลาสิ้นสุดใหม่ (EndTime)"
+                                type="time"
+                                value={durationEndTime}
+                                onChange={(e) => setDurationEndTime(e.target.value)}
+                                required
+                            />
+                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 text-center text-xs">
+                                <span className="text-gray-500 block">ระยะเวลาใหม่รวม</span>
+                                <strong className="text-purple-700 text-sm font-bold">
+                                    {calculateDurationText(selectedBookingForDuration.StartTime, durationEndTime)}
+                                </strong>
+                            </div>
+                        </div>
+
+                        {/* Overlap Notice */}
+                        {bookings.some(b => 
+                            b.BookingID !== selectedBookingForDuration.BookingID &&
+                            b.Status !== 2 &&
+                            b.BookingDate === selectedBookingForDuration.BookingDate &&
+                            b.StartTime >= selectedBookingForDuration.StartTime &&
+                            b.StartTime < durationEndTime
+                        ) && (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 leading-relaxed flex items-start gap-2">
+                                <span className="text-sm">⚠️</span>
+                                <div>
+                                    <strong>เวลาใหม่คาบเกี่ยวกับคิวอื่นในวันเดียวกัน:</strong>
+                                    <p className="mt-0.5 text-amber-700">
+                                        การขยายเวลาจะทำให้ช่วงเวลานี้ชนกับคิวถัดไป คุณสามารถบันทึกได้ และบริหารจัดการคิวคันต่อๆ ไปหน้างานตามความเหมาะสม
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">เหตุผลในการปรับเวลา (ถ้ามี)</label>
+                            <textarea
+                                placeholder="ระบุเหตุผลการขยายเวลา เช่น งานซ่อมใช้เวลามากกว่าปกติ, รออะไหล่..."
+                                value={durationReason}
+                                onChange={(e) => setDurationReason(e.target.value)}
+                                rows={2}
+                                className="w-full border border-gray-300 rounded-lg p-2 text-xs text-gray-900 focus:ring-purple-500 focus:border-purple-500 placeholder:text-gray-400"
+                            />
+                        </div>
+
+                        <div className="flex justify-end gap-2 pt-2 border-t">
+                            <Button variant="outline" onClick={() => setIsDurationModalOpen(false)} disabled={isSavingDuration}>
+                                ยกเลิก
+                            </Button>
+                            <Button 
+                                onClick={handleSaveDuration}
+                                disabled={isSavingDuration}
+                                className="bg-purple-600 hover:bg-purple-700 text-white"
+                            >
+                                {isSavingDuration ? 'กำลังบันทึก...' : '💾 บันทึกการปรับเวลา'}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+            {/* CS Call Center Update Modal */}
+            <Modal isOpen={isCSModalOpen} onClose={() => !isUpdatingCS && setIsCSModalOpen(false)} title="อัปเดตสถานะการติดต่อลูกค้า (CS)">
+                {selectedCSBooking && (
+                    <div className="space-y-4 pt-4">
+                        <div className="bg-blue-50 p-3 rounded-lg text-sm border border-blue-100 text-blue-900">
+                            <strong>เลขจอง:</strong> {selectedCSBooking.BookingNo} <br />
+                            <strong>ลูกค้า:</strong> {selectedCSBooking.CustomerName} ({selectedCSBooking.CustomerPhone || 'ไม่มีเบอร์'})
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">สถานะการติดต่อ (CS)</label>
+                            <Select
+                                value={csNewStatus}
+                                onChange={(e) => setCsNewStatus(e.target.value)}
+                                className="w-full"
+                                options={[
+                                    { value: 'FOLLOW_UP', label: 'รอดำเนินการ / ติดตามผล (Follow up)' },
+                                    { value: 'CONFIRMED', label: 'ลูกค้ายืนยันแล้ว (Confirmed)' },
+                                    { value: 'NO_ANSWER', label: 'ติดต่อไม่ได้ / โทรไม่รับสาย (No Answer)' }
+                                ]}
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">บันทึกเพิ่มเติม (Note)</label>
+                            <textarea
+                                value={csNote}
+                                onChange={(e) => setCsNote(e.target.value)}
+                                rows={3}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm text-gray-900 placeholder:text-gray-400"
+                                placeholder="เช่น โทรไปไม่รับสาย จะโทรใหม่ตอนบ่าย..."
+                            ></textarea>
+                        </div>
+
+                        <div className="flex justify-end gap-3 mt-6">
+                            <Button variant="outline" onClick={() => setIsCSModalOpen(false)} disabled={isUpdatingCS}>
+                                ยกเลิก
+                            </Button>
+                            <Button className="bg-orange-500 hover:bg-orange-600 text-white" onClick={submitCSStatus} disabled={isUpdatingCS}>
+                                {isUpdatingCS ? 'กำลังบันทึก...' : 'บันทึกสถานะ'}
+                            </Button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+            {/* Action Confirmation & Alert Modal (Replaces browser confirm/prompt/alert) */}
+            <Modal isOpen={actionModal.isOpen} onClose={() => setActionModal(prev => ({ ...prev, isOpen: false }))} title={actionModal.title}>
+                <div className="space-y-4 pt-2">
+                    <p className="text-sm text-gray-700 font-medium">{actionModal.message}</p>
+
+                    {actionModal.type === 'cancel_reason' && (
+                        <div>
+                            <label className="block text-xs font-semibold text-gray-600 mb-1">เหตุผลในการยกเลิก *</label>
+                            <textarea
+                                value={actionModal.reasonText}
+                                onChange={(e) => setActionModal(prev => ({ ...prev, reasonText: e.target.value }))}
+                                rows={3}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-red-500 focus:outline-none placeholder:text-gray-400"
+                                placeholder="พิมพ์เหตุผลที่นี่..."
+                                autoFocus
+                            />
+                        </div>
+                    )}
+
+                    <div className="flex justify-end gap-3 pt-4">
+                        {actionModal.type === 'confirm' || actionModal.type === 'cancel_reason' ? (
+                            <>
+                                <Button variant="outline" onClick={() => setActionModal(prev => ({ ...prev, isOpen: false }))}>
+                                    ยกเลิก
+                                </Button>
+                                <Button
+                                    className={actionModal.type === 'cancel_reason' ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}
+                                    onClick={() => {
+                                        const reason = actionModal.reasonText;
+                                        const onConf = actionModal.onConfirm;
+                                        setActionModal(prev => ({ ...prev, isOpen: false }));
+                                        if (onConf) onConf(reason);
+                                    }}
+                                >
+                                    ตกลงยืนยัน
+                                </Button>
+                            </>
+                        ) : (
+                            <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setActionModal(prev => ({ ...prev, isOpen: false }))}>
+                                ตกลง
+                            </Button>
+                        )}
                     </div>
                 </div>
             </Modal>

@@ -357,7 +357,7 @@ function NewBookingPageInner() {
     }));
 
     return (
-        <div className="max-w-4xl mx-auto py-6 px-4">
+        <div className="w-full max-w-7xl mx-auto py-6 px-4">
             {/* Back to list */}
             <button
                 type="button"
@@ -387,8 +387,8 @@ function NewBookingPageInner() {
                             </div>
                         )}
 
-                        {/* Booking Type Toggle — hidden for CS (CS can only create EV7) */}
-                        {!isCS && (<div className="flex gap-3">
+                        {/* Booking Type Toggle — hidden RETAIL for CS */}
+                        <div className="flex gap-3">
                             <button
                                 type="button"
                                 onClick={() => {
@@ -404,29 +404,32 @@ function NewBookingPageInner() {
                             >
                                 🚕 EV7 (รถ Taxi)
                             </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setBookingType('RETAIL');
-                                    setActiveBookingWarning(null);
-                                    setVehicleSuggestions([]);
-                                    setShowSuggestions(false);
-                                    // Clear EV7-specific fields
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        VinNo: '',
-                                        ProjectType: '',
-                                        InventoryItemID: null,
-                                    }));
-                                }}
-                                className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                                    bookingType === 'RETAIL'
-                                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
-                                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                                }`}
-                            >
-                                🚗 Retail (ลูกค้าทั่วไป)
                             </button>
+                            {!isCS && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setBookingType('RETAIL');
+                                        setActiveBookingWarning(null);
+                                        setVehicleSuggestions([]);
+                                        setShowSuggestions(false);
+                                        // Clear EV7-specific fields
+                                        setFormData(prev => ({
+                                            ...prev,
+                                            VinNo: '',
+                                            ProjectType: '',
+                                            InventoryItemID: null,
+                                        }));
+                                    }}
+                                    className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
+                                        bookingType === 'RETAIL'
+                                            ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
+                                            : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
+                                    }`}
+                                >
+                                    🚗 Retail (ลูกค้าทั่วไป)
+                                </button>
+                            )}
                             <button
                                 type="button"
                                 onClick={() => {
@@ -450,7 +453,6 @@ function NewBookingPageInner() {
                                 🛵 Lineman
                             </button>
                         </div>
-                        )}
 
                         {bookingType === 'RETAIL' && (
                             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800">

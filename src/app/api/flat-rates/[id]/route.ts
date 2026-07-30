@@ -24,7 +24,7 @@ export async function PUT(
         const { id } = await params;
         const flatRateId = parseInt(id);
         const body = await request.json();
-        const { DurationMinutes, Description } = body;
+        const { CarModelID, DurationMinutes, Description } = body;
 
         if (!DurationMinutes) {
             return NextResponse.json(
@@ -45,6 +45,7 @@ export async function PUT(
             data: {
                 DurationMinutes: parseInt(DurationMinutes),
                 Description: Description !== undefined ? Description : undefined,
+                CarModelID: CarModelID !== undefined ? (CarModelID ? parseInt(CarModelID) : null) : undefined,
             },
             include: {
                 ServiceType: {
@@ -52,6 +53,9 @@ export async function PUT(
                 },
                 Mileage: {
                     select: { Value: true, Label: true },
+                },
+                CarModel: {
+                    select: { ModelName: true, Brand: true },
                 },
             },
         });

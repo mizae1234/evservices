@@ -92,7 +92,7 @@ function BayCalendarPageInner() {
     const [selectedBranch, setSelectedBranch] = useState(paramBranchId || '');
     const [branches, setBranches] = useState<BranchOption[]>([]);
     const [bays, setBays] = useState<BayData[]>([]);
-    const [operatingHours, setOperatingHours] = useState({ openTime: '08:00', closeTime: '17:30' });
+    const [operatingHours, setOperatingHours] = useState({ openTime: '08:30', closeTime: '17:30' });
     const [isClosed, setIsClosed] = useState(false);
     const [closedReason, setClosedReason] = useState('');
     const [noBaysMessage, setNoBaysMessage] = useState('');
@@ -109,6 +109,7 @@ function BayCalendarPageInner() {
     const [rescheduleDate, setRescheduleDate] = useState('');
     const [rescheduleHour, setRescheduleHour] = useState('08');
     const [rescheduleMin, setRescheduleMin] = useState('00');
+    const [customEndTime, setCustomEndTime] = useState('');
     const [rescheduleReason, setRescheduleReason] = useState('');
     const [rescheduleError, setRescheduleError] = useState('');
     const [rescheduleBayId, setRescheduleBayId] = useState('');
@@ -217,8 +218,11 @@ function BayCalendarPageInner() {
                     setActiveTab('detail');
                     setIsRescheduling(true);
                     setRescheduleDate(booking.BookingDate.split('T')[0]);
-                    setRescheduleHour(booking.StartTime.split(':')[0]);
-                    setRescheduleMin(booking.StartTime.split(':')[1]);
+                    const sh = booking.StartTime.split(':')[0];
+                    const sm = booking.StartTime.split(':')[1];
+                    setRescheduleHour(sh);
+                    setRescheduleMin(sm);
+                    setCustomEndTime(booking.EndTime || computeDefaultEndTime(sh, sm, booking.DurationMinutes));
                     setRescheduleBayId(booking.BayID?.toString() || '');
                     setRescheduleReason('');
                     setRescheduleError('');
@@ -253,6 +257,16 @@ function BayCalendarPageInner() {
     }
     const totalGridWidth = timeSlots.length * SLOT_WIDTH;
 
+    const computeDefaultEndTime = (startH: string, startM: string, durationMins: number) => {
+        const startMins = timeToMinutes(`${startH}:${startM}`);
+        let endM = startMins + (durationMins || 120);
+        const lunchStart = 12 * 60;
+        if (startMins < lunchStart && endM > lunchStart) {
+            endM += 60; // Add 60 mins for lunch break
+        }
+        return minutesToTime(endM);
+    };
+
     // Handle booking click
     const handleBookingClick = async (booking: BayBooking, bayName: string) => {
         setSelectedBooking(booking);
@@ -260,8 +274,11 @@ function BayCalendarPageInner() {
         setActiveTab('detail');
         setIsRescheduling(false);
         setRescheduleDate(selectedDate);
-        setRescheduleHour(booking.StartTime.split(':')[0]);
-        setRescheduleMin(booking.StartTime.split(':')[1]);
+        const sh = booking.StartTime.split(':')[0];
+        const sm = booking.StartTime.split(':')[1];
+        setRescheduleHour(sh);
+        setRescheduleMin(sm);
+        setCustomEndTime(booking.EndTime || computeDefaultEndTime(sh, sm, booking.DurationMinutes));
         setRescheduleBayId(booking.BayID?.toString() || '');
         setRescheduleReason('');
         setRescheduleError('');
@@ -275,6 +292,14 @@ function BayCalendarPageInner() {
             }
         } catch (err) {
             console.error('Error loading booking logs:', err);
+        }
+    };
+
+    const handleStartChange = (h: string, m: string) => {
+        setRescheduleHour(h);
+        setRescheduleMin(m);
+        if (selectedBooking) {
+            setCustomEndTime(computeDefaultEndTime(h, m, selectedBooking.DurationMinutes));
         }
     };
 
@@ -299,7 +324,13 @@ function BayCalendarPageInner() {
         if (startM < lunchStart && endM > lunchStart) {
             endM += 60; // Add 60 mins for lunch break
         }
-        const computedEndTime = minutesToTime(endM);
+        const defaultEndTime = minutesToTime(endM);
+        const finalEndTime = customEndTime || defaultEndTime;
+
+        if (finalEndTime <= `${rescheduleHour}:${rescheduleMin}`) {
+            setRescheduleError('เวลาเลิกงานใหม่ต้องมากกว่าเวลาเริ่มต้น');
+            return;
+        }
 
         setIsApproving(true);
         try {
@@ -309,7 +340,7 @@ function BayCalendarPageInner() {
                 body: JSON.stringify({
                     BookingDate: rescheduleDate,
                     StartTime: `${rescheduleHour}:${rescheduleMin}`,
-                    EndTime: computedEndTime,
+                    EndTime: finalEndTime,
                     RescheduleReason: rescheduleReason.trim(),
                     BayID: rescheduleBayId ? parseInt(rescheduleBayId) : null,
                 }),
@@ -809,7 +840,7 @@ function BayCalendarPageInner() {
                                             <div className="flex items-center gap-1">
                                                 <select
                                                     value={rescheduleHour}
-                                                    onChange={(e) => setRescheduleHour(e.target.value)}
+                                                    onChange={(e) => handleStartChange(e.target.value, rescheduleMin)}
                                                     className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
                                                 >
                                                     {Array.from({ length: 11 }, (_, i) => {
@@ -820,7 +851,7 @@ function BayCalendarPageInner() {
                                                 <span className="text-lg font-bold text-gray-900">:</span>
                                                 <select
                                                     value={rescheduleMin}
-                                                    onChange={(e) => setRescheduleMin(e.target.value)}
+                                                    onChange={(e) => handleStartChange(rescheduleHour, e.target.value)}
                                                     className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
                                                 >
                                                     <option value="00">00</option>
@@ -828,6 +859,51 @@ function BayCalendarPageInner() {
                                                 </select>
                                             </div>
                                         </div>
+
+                                        {/* EndTime adjustment for Branch / Admin users (HIDE from CS) */}
+                                        {session?.user?.role !== 'CS' && (
+                                            <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
+                                                <div className="flex items-center justify-between text-xs font-bold text-purple-900">
+                                                    <span>⏱️ เวลาเลิกงาน / เวลาเสร็จ (EndTime)</span>
+                                                    <span className="text-[10px] text-purple-700 bg-purple-100 px-2 py-0.5 rounded font-medium">
+                                                        คำนวณให้อัตโนมัติ ปรับเพิ่มได้
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="time"
+                                                        value={customEndTime}
+                                                        onChange={(e) => setCustomEndTime(e.target.value)}
+                                                        className="border border-purple-300 rounded-lg px-3 py-1.5 text-sm font-bold text-purple-900 bg-white w-full focus:ring-2 focus:ring-purple-500"
+                                                    />
+                                                </div>
+                                                <div className="grid grid-cols-4 gap-1.5 pt-1">
+                                                    {[
+                                                        { label: '+30m', mins: 30 },
+                                                        { label: '+1h', mins: 60 },
+                                                        { label: '+1.5h', mins: 90 },
+                                                        { label: '+2h', mins: 120 },
+                                                    ].map((btn) => (
+                                                        <button
+                                                            key={btn.label}
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const currentEnd = customEndTime || selectedBooking?.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking?.DurationMinutes);
+                                                                const [h, m] = currentEnd.split(':').map(Number);
+                                                                const d = new Date();
+                                                                d.setHours(h, m + btn.mins, 0, 0);
+                                                                const newH = String(d.getHours()).padStart(2, '0');
+                                                                const newM = String(d.getMinutes()).padStart(2, '0');
+                                                                setCustomEndTime(`${newH}:${newM}`);
+                                                            }}
+                                                            className="py-1 px-1 bg-white hover:bg-purple-100 border border-purple-300 rounded text-xs font-bold text-purple-800 transition-colors"
+                                                        >
+                                                            {btn.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
                                         <div>
                                             <label className="block text-xs font-bold text-gray-700 mb-1">ช่องซ่อม *</label>
                                             <select
@@ -923,7 +999,12 @@ function BayCalendarPageInner() {
                                                         variant="outline"
                                                         size="sm"
                                                         className="w-full text-blue-600 border-blue-200 hover:bg-blue-50 font-bold"
-                                                        onClick={() => setIsRescheduling(true)}
+                                                        onClick={() => {
+                                                            if (selectedBooking) {
+                                                                setCustomEndTime(selectedBooking.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking.DurationMinutes));
+                                                            }
+                                                            setIsRescheduling(true);
+                                                        }}
                                                     >
                                                         <Clock className="w-4 h-4 mr-1.5" />
                                                         เลื่อนคิวนัดหมาย

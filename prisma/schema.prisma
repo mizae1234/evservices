@@ -36,6 +36,7 @@ model CM_User {
   UpdatedClaims CM_DocClaim[]       @relation("ClaimUpdater")
   Branch        CM_MsServiceBranch? @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
   Role          CM_Role             @relation(fields: [RoleID], references: [RoleID], onUpdate: NoAction)
+  Notifications CM_Notification[]
 
   @@map("CM_User")
 }
@@ -46,8 +47,11 @@ model CM_MsServiceBranch {
   BranchName  String                @db.NVarChar(100)
   Address     String?               @db.NVarChar(500)
   Phone       String?               @db.NVarChar(20)
-  IsActive    Boolean               @default(true)
-  CreateDate  DateTime              @default(now())
+  IsActive           Boolean               @default(true)
+  AllowOnlineBooking Boolean               @default(false)
+  OpenTime           String?               @default("08:30") @db.NVarChar(10)
+  CloseTime          String?               @default("17:30") @db.NVarChar(10)
+  CreateDate         DateTime              @default(now())
   UpdateDate  DateTime              @updatedAt
   Bookings      CM_Booking[]
   Holidays      CM_BranchHoliday[]
@@ -69,6 +73,7 @@ model CM_MsCarModel {
   IsActive   Boolean  @default(true)
   CreateDate DateTime @default(now())
   UpdateDate DateTime @updatedAt
+  FlatRates  CM_FlatRate[]
 
   @@map("CM_MsCarModel")
 }
@@ -166,6 +171,7 @@ model CM_Booking {
   StartTime       String             @db.NVarChar(10)
   EndTime         String             @db.NVarChar(10)
   CustomerName    String             @db.NVarChar(100)
+  CustomerPhone   String?            @db.NVarChar(20)
   CarModel        String             @db.NVarChar(100)
   CarRegister     String             @db.NVarChar(20)
   VinNo           String?            @db.NVarChar(50)
@@ -178,6 +184,8 @@ model CM_Booking {
   CreateBy        Int
   CreateDate      DateTime           @default(now())
   Status          Int                @default(0)
+  IsActive        Boolean            @default(true)
+  CSStatus        String             @default("PENDING") @db.NVarChar(50)
   ClaimID         Int?
   BookingType     String             @default("EV7") @db.NVarChar(20)
   // --- New Bay Booking fields ---
@@ -289,6 +297,7 @@ model CM_FlatRate {
   FlatRateID      Int             @id @default(autoincrement())
   ServiceTypeID   Int
   MileageID       Int?
+  CarModelID      Int?
   DurationMinutes Int
   Description     String?         @db.NVarChar(200)
   IsActive        Boolean         @default(true)
@@ -296,8 +305,9 @@ model CM_FlatRate {
   UpdateDate      DateTime        @updatedAt
   ServiceType     CM_ServiceType  @relation(fields: [ServiceTypeID], references: [ServiceTypeID], onUpdate: NoAction)
   Mileage         CM_MsMileage?   @relation(fields: [MileageID], references: [MileageID], onDelete: NoAction, onUpdate: NoAction)
+  CarModel        CM_MsCarModel?  @relation(fields: [CarModelID], references: [ModelID], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([ServiceTypeID, MileageID])
+  @@unique([ServiceTypeID, MileageID, CarModelID])
   @@map("CM_FlatRate")
 }
 
@@ -314,4 +324,19 @@ model CM_ServiceBay {
   Bookings   CM_Booking[]
 
   @@map("CM_ServiceBay")
+}
+
+model CM_Notification {
+  NotificationID  Int      @id @default(autoincrement())
+  UserID          Int
+  Type            String   @db.NVarChar(50)
+  Title           String   @db.NVarChar(200)
+  Message         String   @db.NVarChar(500)
+  BookingID       Int?
+  IsRead          Boolean  @default(false)
+  CreateDate      DateTime @default(now())
+
+  User            CM_User  @relation(fields: [UserID], references: [UserID], onUpdate: NoAction)
+
+  @@map("CM_Notification")
 }

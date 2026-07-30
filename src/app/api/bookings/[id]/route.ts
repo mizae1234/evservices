@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { notifyCSUsers, NOTI_TYPES, formatBookingDate } from '@/lib/notifications';
 
 export async function GET(
     request: NextRequest,
@@ -91,6 +92,7 @@ export async function PUT(
             EndTime, 
             RescheduleReason,
             CustomerName,
+            CustomerPhone,
             CarRegister,
             CarModel,
             VinNo,
@@ -101,7 +103,8 @@ export async function PUT(
         } = body;
 
         const hasDetails = CustomerName !== undefined || CarRegister !== undefined || CarModel !== undefined || VinNo !== undefined || LastMileage !== undefined || ClaimDetail !== undefined || BayID !== undefined;
-        if (status === undefined && claimId === undefined && (!BookingDate || !StartTime || !EndTime) && !hasDetails) {
+        const isDurationUpdate = EndTime !== undefined;
+        if (status === undefined && claimId === undefined && (!BookingDate || !StartTime || !EndTime) && !hasDetails && !isDurationUpdate) {
             return NextResponse.json({ success: false, error: 'Missing update parameters' }, { status: 400 });
         }
 
@@ -155,6 +158,7 @@ export async function PUT(
 
         // Details updates
         if (CustomerName !== undefined) updateData.CustomerName = CustomerName;
+        if (CustomerPhone !== undefined) updateData.CustomerPhone = CustomerPhone || null;
         if (CarRegister !== undefined) updateData.CarRegister = CarRegister.replace(/\s/g, '');
         if (CarModel !== undefined) updateData.CarModel = CarModel;
         if (VinNo !== undefined) updateData.VinNo = VinNo || null;
@@ -162,6 +166,29 @@ export async function PUT(
         if (BayID !== undefined) updateData.BayID = BayID ? parseInt(BayID) : null;
         if (ClaimDetail !== undefined && !BookingDate) {
             updateData.ClaimDetail = ClaimDetail;
+        }
+
+        // Duration Extension / Adjustment logic (when EndTime is passed without BookingDate)
+        if (!BookingDate && EndTime && EndTime !== booking.EndTime) {
+            const oldEndTime = booking.EndTime;
+            updateData.EndTime = EndTime;
+            
+            const timeToM = (t: string) => {
+                const [h, m] = t.split(':').map(Number);
+                return h * 60 + m;
+            };
+            const startMins = timeToM(booking.StartTime);
+            let endMins = timeToM(EndTime);
+            if (endMins < startMins) endMins += 24 * 60;
+            const newDurationMins = endMins - startMins;
+            updateData.DurationMinutes = newDurationMins;
+
+            const durationReasonStr = body.DurationReason ? ` (เหตุผล: ${body.DurationReason})` : '';
+            logsToCreate.push({
+                LogType: 'EXTEND_DURATION',
+                Content: `ขยาย/ปรับเวลาซ่อมจากเดิม (${booking.StartTime} - ${oldEndTime} น.) เป็น (${booking.StartTime} - ${EndTime} น. รวม ${Math.floor(newDurationMins / 60)} ชม. ${newDurationMins % 60} นาที)${durationReasonStr}`,
+                CreateBy: session.user.email || 'SYSTEM',
+            });
         }
 
         // Rescheduling logic
@@ -369,6 +396,53 @@ export async function PUT(
             where: { BookingID: bookingId },
             data: updateData,
         });
+
+        // === Create Notifications (broadcast to all CS users) ===
+        try {
+            const currentUserId = parseInt(session.user.id);
+            const branch = await prisma.cM_MsServiceBranch.findUnique({
+                where: { BranchID: booking.BranchID },
+                select: { BranchName: true },
+            });
+            const branchName = branch?.BranchName || '';
+
+            // Status change notifications
+            if (status !== undefined) {
+                const newStatus = parseInt(status);
+                if (newStatus === 1) {
+                    await notifyCSUsers(
+                        bookingId,
+                        NOTI_TYPES.BOOKING_APPROVED,
+                        `คิว ${booking.BookingNo} ได้รับการอนุมัติแล้ว ✅`,
+                        `คิว ${booking.BookingNo} สาขา${branchName} วันที่ ${formatBookingDate(booking.BookingDate)} เวลา ${booking.StartTime}-${booking.EndTime} น. ลูกค้า ${booking.CustomerName} อนุมัติแล้ว`,
+                        currentUserId
+                    );
+                } else if (newStatus === 2) {
+                    await notifyCSUsers(
+                        bookingId,
+                        NOTI_TYPES.BOOKING_CANCELLED,
+                        `คิว ${booking.BookingNo} ถูกยกเลิก ❌`,
+                        `คิว ${booking.BookingNo} สาขา${branchName} วันที่ ${formatBookingDate(booking.BookingDate)} เวลา ${booking.StartTime}-${booking.EndTime} น. ลูกค้า ${booking.CustomerName} ถูกยกเลิก${cancelReason ? ` เหตุผล: ${cancelReason}` : ''}`,
+                        currentUserId
+                    );
+                }
+            }
+
+            // Reschedule notification
+            if (BookingDate && StartTime && EndTime) {
+                const [newY, newM2, newD2] = BookingDate.split('-').map(Number);
+                const newDateStr = `${newD2}/${newM2}/${newY}`;
+                await notifyCSUsers(
+                    bookingId,
+                    NOTI_TYPES.BOOKING_RESCHEDULED,
+                    `คิว ${booking.BookingNo} ถูกเลื่อนนัดหมาย 📅`,
+                    `คิว ${booking.BookingNo} ลูกค้า ${booking.CustomerName} เลื่อนจากวันที่ ${formatBookingDate(booking.BookingDate)} (${booking.StartTime}-${booking.EndTime}) ไปเป็นวันที่ ${newDateStr} (${StartTime}-${EndTime}) ${RescheduleReason ? `เหตุผล: ${RescheduleReason}` : ''}`,
+                    currentUserId
+                );
+            }
+        } catch (notiError) {
+            console.error('Error creating notification:', notiError);
+        }
 
         return NextResponse.json({
             success: true,

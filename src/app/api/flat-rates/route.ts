@@ -46,6 +46,14 @@ export async function GET(request: NextRequest) {
                         Label: true,
                     },
                 },
+                CarModel: {
+                    select: {
+                        ModelID: true,
+                        ModelCode: true,
+                        ModelName: true,
+                        Brand: true,
+                    },
+                },
             },
         });
 
@@ -75,7 +83,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { ServiceTypeID, MileageID, DurationMinutes, Description } = body;
+        const { ServiceTypeID, MileageID, CarModelID, DurationMinutes, Description } = body;
 
         if (!ServiceTypeID || !DurationMinutes) {
             return NextResponse.json(
@@ -97,6 +105,7 @@ export async function POST(request: NextRequest) {
             where: {
                 ServiceTypeID: parseInt(ServiceTypeID),
                 MileageID: MileageID ? parseInt(MileageID) : null,
+                CarModelID: CarModelID ? parseInt(CarModelID) : null,
                 IsActive: true,
             },
         });
@@ -112,6 +121,7 @@ export async function POST(request: NextRequest) {
             data: {
                 ServiceTypeID: parseInt(ServiceTypeID),
                 MileageID: MileageID ? parseInt(MileageID) : null,
+                CarModelID: CarModelID ? parseInt(CarModelID) : null,
                 DurationMinutes: parseInt(DurationMinutes),
                 Description: Description || null,
             },
@@ -121,6 +131,9 @@ export async function POST(request: NextRequest) {
                 },
                 Mileage: {
                     select: { Value: true, Label: true },
+                },
+                CarModel: {
+                    select: { ModelName: true, Brand: true },
                 },
             },
         });

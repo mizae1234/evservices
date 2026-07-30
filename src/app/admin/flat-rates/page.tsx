@@ -26,10 +26,12 @@ interface FlatRate {
     FlatRateID: number;
     ServiceTypeID: number;
     MileageID: number | null;
+    CarModelID: number | null;
     DurationMinutes: number;
     Description: string | null;
     ServiceType: { Code: string; Name: string; RequiresMileage: boolean };
     Mileage: { Value: number; Label: string } | null;
+    CarModel: { ModelID: number; ModelCode: string; ModelName: string; Brand: string | null } | null;
 }
 
 export default function FlatRateManagementPage() {
@@ -38,10 +40,12 @@ export default function FlatRateManagementPage() {
     const [flatRates, setFlatRates] = useState<FlatRate[]>([]);
     const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
     const [mileages, setMileages] = useState<Mileage[]>([]);
+    const [carModels, setCarModels] = useState<{ ModelID: number; ModelName: string; Brand: string | null }[]>([]);
 
     // Create form
     const [selectedServiceType, setSelectedServiceType] = useState('');
     const [selectedMileage, setSelectedMileage] = useState('');
+    const [selectedCarModel, setSelectedCarModel] = useState('');
     const [durationMinutes, setDurationMinutes] = useState('');
     const [description, setDescription] = useState('');
     const [isCreating, setIsCreating] = useState(false);
@@ -54,17 +58,22 @@ export default function FlatRateManagementPage() {
 
     const isAdmin = session?.user?.role === 'ADMIN';
 
+    // Filter
+    const [filterModel, setFilterModel] = useState('');
+
     const loadData = useCallback(async () => {
         try {
-            const [frRes, stRes, mRes] = await Promise.all([
+            const [frRes, stRes, mRes, cRes] = await Promise.all([
                 fetch('/api/flat-rates'),
                 fetch('/api/service-types'),
                 fetch('/api/mileages'),
+                fetch('/api/car-models'),
             ]);
-            const [frData, stData, mData] = await Promise.all([frRes.json(), stRes.json(), mRes.json()]);
+            const [frData, stData, mData, cData] = await Promise.all([frRes.json(), stRes.json(), mRes.json(), cRes.json()]);
             if (frData.success) setFlatRates(frData.data);
             if (stData.success) setServiceTypes(stData.data);
-            if (mData.success) setMileages(mData.data || []);
+            if (mData.success) setMileages(mData.raw || []);
+            if (cData.success) setCarModels(cData.data || []);
         } catch (err) {
             console.error('Error loading flat rate data:', err);
         } finally {
@@ -101,6 +110,9 @@ export default function FlatRateManagementPage() {
             if (selectedST?.RequiresMileage && selectedMileage) {
                 body.MileageID = selectedMileage;
             }
+            if (selectedCarModel) {
+                body.CarModelID = selectedCarModel;
+            }
 
             const res = await fetch('/api/flat-rates', {
                 method: 'POST',
@@ -111,6 +123,7 @@ export default function FlatRateManagementPage() {
             if (data.success) {
                 setSelectedServiceType('');
                 setSelectedMileage('');
+                setSelectedCarModel('');
                 setDurationMinutes('');
                 setDescription('');
                 loadData();
@@ -188,11 +201,25 @@ export default function FlatRateManagementPage() {
         );
     }
 
-    // Group flat rates by service type
-    const grouped = serviceTypes.map(st => ({
-        ...st,
-        rates: flatRates.filter(fr => fr.ServiceTypeID === st.ServiceTypeID),
-    }));
+    // Group flat rates by service type, sort by model then mileage, filter by model
+    const grouped = serviceTypes.map(st => {
+        let rates = flatRates.filter(fr => fr.ServiceTypeID === st.ServiceTypeID);
+        
+        // Filter by model
+        if (filterModel) {
+            rates = rates.filter(fr => fr.CarModelID?.toString() === filterModel);
+        }
+        
+        // Sort by model name then mileage value
+        rates.sort((a, b) => {
+            const aModel = a.CarModel ? (a.CarModel.Brand ? `${a.CarModel.Brand} ${a.CarModel.ModelName}` : a.CarModel.ModelName) : 'zzz';
+            const bModel = b.CarModel ? (b.CarModel.Brand ? `${b.CarModel.Brand} ${b.CarModel.ModelName}` : b.CarModel.ModelName) : 'zzz';
+            if (aModel !== bModel) return aModel.localeCompare(bModel);
+            return (a.Mileage?.Value || 0) - (b.Mileage?.Value || 0);
+        });
+        
+        return { ...st, rates };
+    });
 
     return (
         <>
@@ -236,6 +263,14 @@ export default function FlatRateManagementPage() {
                                 />
                             )}
 
+                            <Select
+                                label="รุ่นรถ"
+                                value={selectedCarModel}
+                                onChange={(e) => setSelectedCarModel(e.target.value)}
+                                options={carModels.map(cm => ({ value: cm.ModelID.toString(), label: cm.Brand ? `${cm.Brand} ${cm.ModelName}` : cm.ModelName }))}
+                                placeholder="ทุกรุ่น (ไม่ระบุ)"
+                            />
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">ระยะเวลา (นาที)</label>
                                 <div className="flex items-center gap-2">
@@ -271,6 +306,26 @@ export default function FlatRateManagementPage() {
                 </Card>
 
                 {/* Flat Rates by Service Type */}
+                <div className="flex items-center gap-3 mb-2">
+                    <label className="text-sm font-medium text-gray-700 whitespace-nowrap">ค้นหารุ่นรถ:</label>
+                    <select
+                        value={filterModel}
+                        onChange={(e) => setFilterModel(e.target.value)}
+                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 w-64"
+                    >
+                        <option value="">ทุกรุ่น</option>
+                        {carModels.map(cm => (
+                            <option key={cm.ModelID} value={cm.ModelID.toString()}>
+                                {cm.Brand ? `${cm.Brand} ${cm.ModelName}` : cm.ModelName}
+                            </option>
+                        ))}
+                    </select>
+                    {filterModel && (
+                        <button onClick={() => setFilterModel('')} className="text-xs text-gray-400 hover:text-red-500">
+                            ✕ ล้างตัวกรอง
+                        </button>
+                    )}
+                </div>
                 {grouped.map(st => (
                     <Card key={st.ServiceTypeID}>
                         <CardHeader>
@@ -291,6 +346,7 @@ export default function FlatRateManagementPage() {
                                         <thead>
                                             <tr className="border-b border-gray-200 text-left">
                                                 {st.RequiresMileage && <th className="py-2.5 px-3 text-gray-800 font-bold text-sm">ระยะทาง</th>}
+                                                <th className="py-2.5 px-3 text-gray-800 font-bold text-sm">รุ่นรถ</th>
                                                 <th className="py-2.5 px-3 text-gray-800 font-bold text-sm">ระยะเวลา</th>
                                                 <th className="py-2.5 px-3 text-gray-800 font-bold text-sm">รายละเอียด</th>
                                                 <th className="py-2.5 px-3 text-gray-800 font-bold text-sm text-right">จัดการ</th>
@@ -302,6 +358,9 @@ export default function FlatRateManagementPage() {
                                                 {st.RequiresMileage && (
                                                         <td className="py-2.5 px-3 font-bold text-gray-900">{fr.Mileage?.Label || '-'}</td>
                                                     )}
+                                                    <td className="py-2.5 px-3 text-gray-700 text-sm">
+                                                        {fr.CarModel ? (fr.CarModel.Brand ? `${fr.CarModel.Brand} ${fr.CarModel.ModelName}` : fr.CarModel.ModelName) : <span className="text-gray-400">ทุกรุ่น</span>}
+                                                    </td>
                                                     <td className="py-2.5 px-3">
                                                         {editingId === fr.FlatRateID ? (
                                                             <Input

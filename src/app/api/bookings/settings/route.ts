@@ -6,12 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
-const DEFAULT_SLOTS = [
-    { StartTime: '08:30', EndTime: '10:30', MaxQueue: 2 },
-    { StartTime: '10:30', EndTime: '12:30', MaxQueue: 2 },
-    { StartTime: '13:30', EndTime: '15:30', MaxQueue: 2 },
-    { StartTime: '15:30', EndTime: '17:30', MaxQueue: 2 },
-];
+
 
 const DEFAULT_WORKING_DAYS = [
     { DayOfWeek: 0, IsOpen: false }, // Sun
@@ -47,21 +42,9 @@ export async function GET(request: NextRequest) {
 
         const branchId = parseInt(branchIdStr);
 
-        // 1. Fetch slot configs from database
-        const dbConfigs = await prisma.cM_BranchSlotConfig.findMany({
-            where: { BranchID: branchId, IsActive: true },
-            orderBy: { StartTime: 'asc' },
-        });
 
-        const slots = dbConfigs.length > 0 
-            ? dbConfigs.map(c => ({
-                StartTime: c.StartTime,
-                EndTime: c.EndTime,
-                MaxQueue: c.MaxQueue,
-              }))
-            : DEFAULT_SLOTS;
 
-        // 2. Fetch working days from database
+        // 1. Fetch working days from database
         const dbWorkingDays = await prisma.cM_BranchWorkingDay.findMany({
             where: { BranchID: branchId },
         });
@@ -74,11 +57,20 @@ export async function GET(request: NextRequest) {
             };
         });
 
+        // 2. Fetch branch operating hours
+        const branchInfo = await prisma.cM_MsServiceBranch.findUnique({
+            where: { BranchID: branchId },
+            select: { OpenTime: true, CloseTime: true },
+        });
+
         return NextResponse.json({
             success: true,
             data: {
-                slots,
                 workingDays,
+                operatingHours: { 
+                    openTime: branchInfo?.OpenTime || '08:30', 
+                    closeTime: branchInfo?.CloseTime || '17:30' 
+                },
             },
         });
     } catch (error) {
@@ -98,7 +90,7 @@ export async function POST(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { branchId: bodyBranchId, configs, workingDays } = body;
+        const { branchId: bodyBranchId, workingDays, operatingHours } = body;
 
         let branchId = bodyBranchId ? parseInt(bodyBranchId) : null;
 
@@ -114,43 +106,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'Missing branchId' }, { status: 400 });
         }
 
-        // 1. Save slot configs (if provided)
-        if (Array.isArray(configs)) {
-            // Set all existing configs for this branch to inactive first (deactivates deleted slots)
-            await prisma.cM_BranchSlotConfig.updateMany({
-                where: { BranchID: branchId },
-                data: { IsActive: false },
-            });
 
-            // Upsert each slot configuration and set to active
-            for (const config of configs) {
-                const { StartTime, EndTime, MaxQueue } = config;
-                if (!StartTime || !EndTime || typeof MaxQueue !== 'number') continue;
 
-                await prisma.cM_BranchSlotConfig.upsert({
-                    where: {
-                        BranchID_StartTime_EndTime: {
-                            BranchID: branchId,
-                            StartTime,
-                            EndTime,
-                        },
-                    },
-                    update: {
-                        MaxQueue,
-                        IsActive: true,
-                    },
-                    create: {
-                        BranchID: branchId,
-                        StartTime,
-                        EndTime,
-                        MaxQueue,
-                        IsActive: true,
-                    },
-                });
-            }
-        }
-
-        // 2. Save working days (if provided)
+        // 1. Save working days (if provided)
         if (Array.isArray(workingDays)) {
             for (const wd of workingDays) {
                 const dayOfWeek = parseInt(wd.DayOfWeek);
@@ -175,6 +133,17 @@ export async function POST(request: NextRequest) {
                     },
                 });
             }
+        }
+
+        // 2. Save operating hours
+        if (operatingHours && operatingHours.openTime && operatingHours.closeTime) {
+            await prisma.cM_MsServiceBranch.update({
+                where: { BranchID: branchId },
+                data: {
+                    OpenTime: operatingHours.openTime,
+                    CloseTime: operatingHours.closeTime,
+                },
+            });
         }
 
         return NextResponse.json({

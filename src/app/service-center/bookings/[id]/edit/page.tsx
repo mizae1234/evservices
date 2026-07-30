@@ -25,6 +25,7 @@ export default function EditBookingPage() {
     const [formData, setFormData] = useState({
         BookingNo: '',
         CustomerName: '',
+        CustomerPhone: '',
         CarRegister: '',
         CarModel: '',
         VinNo: '',
@@ -60,6 +61,7 @@ export default function EditBookingPage() {
                     setFormData({
                         BookingNo: b.BookingNo,
                         CustomerName: b.CustomerName,
+                        CustomerPhone: b.CustomerPhone || '',
                         CarRegister: b.CarRegister,
                         CarModel: b.CarModel || '',
                         VinNo: b.VinNo || '',
@@ -173,6 +175,7 @@ export default function EditBookingPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     CustomerName: formData.CustomerName,
+                    CustomerPhone: formData.CustomerPhone || null,
                     CarRegister: formData.CarRegister,
                     CarModel: formData.CarModel,
                     VinNo: formData.VinNo,
@@ -333,6 +336,15 @@ export default function EditBookingPage() {
                                     value={formData.CustomerName}
                                     onChange={handleChange}
                                     required
+                                />
+
+                                <Input
+                                    label="เบอร์โทรลูกค้า *"
+                                    name="CustomerPhone"
+                                    placeholder="0xxxxxxxxx"
+                                    value={formData.CustomerPhone}
+                                    onChange={(e) => setFormData(prev => ({ ...prev, CustomerPhone: e.target.value.replace(/[^0-9]/g, '') }))}
+                                    maxLength={10}
                                 />
 
                                 <Input

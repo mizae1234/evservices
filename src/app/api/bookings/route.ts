@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { notifyBranchAndAdminUsers, NOTI_TYPES } from '@/lib/notifications';
 
 const DEFAULT_SLOTS = [
     { StartTime: '08:30', EndTime: '10:30', MaxQueue: 2 },
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
             StartTime,
             EndTime,
             CustomerName,
+            CustomerPhone,
             CarModel,
             CarRegister,
             VinNo,
@@ -286,13 +288,15 @@ export async function POST(request: NextRequest) {
             }
 
             // Check lunch break overlap (12:00 - 13:00)
+            // Allow bookings that span across lunch (e.g. 11:30 start, end 14:30 — the frontend already adds 1hr for lunch)
+            // Block only if the booking starts during lunch hour
             const startMinutes = timeToMinutes(StartTime);
             const lunchStart = 12 * 60; // 12:00
             const lunchEnd = 13 * 60;   // 13:00
-            if ((startMinutes >= lunchStart && startMinutes < lunchEnd) || (endMinutes > lunchStart && endMinutes <= lunchEnd)) {
+            if (startMinutes >= lunchStart && startMinutes < lunchEnd) {
                 return NextResponse.json({
                     success: false,
-                    error: 'ช่วงเวลาที่เลือกทับซ้อนกับเวลาพักกลางวันของศูนย์บริการ (12:00 - 13:00 น.)',
+                    error: 'ไม่สามารถเริ่มจองในช่วงเวลาพักกลางวัน (12:00 - 13:00 น.) ได้',
                 }, { status: 400 });
             }
 
@@ -359,6 +363,7 @@ export async function POST(request: NextRequest) {
                     StartTime,
                     EndTime,
                     CustomerName,
+                    CustomerPhone: CustomerPhone || null,
                     CarModel,
                     CarRegister: CarRegister.replace(/\s/g, ''),
                     VinNo: VinNo || null,
@@ -393,6 +398,28 @@ export async function POST(request: NextRequest) {
                     CreateBy: session.user.name || session.user.email || 'System',
                 },
             });
+
+            // Notify SERVICE_CENTER (same branch) + ADMIN
+            try {
+                const currentUserId = parseInt(session.user.id);
+                const branchInfo = await prisma.cM_MsServiceBranch.findUnique({ where: { BranchID: branchId }, select: { BranchName: true } });
+                const rawBName = branchInfo?.BranchName || '';
+                const bNameText = rawBName.startsWith('สาขา') ? rawBName : `สาขา${rawBName}`;
+                const statusLabel = bookingStatus === 1 ? 'อนุมัติอัตโนมัติ' : 'รออนุมัติ';
+                
+                const dObj = new Date(bookingDate);
+                const dateStr = dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+                const timeStr = EndTime ? `${StartTime} - ${EndTime} น.` : `${StartTime} น.`;
+
+                await notifyBranchAndAdminUsers(
+                    branchId, 
+                    booking.BookingID, 
+                    NOTI_TYPES.BOOKING_NEW, 
+                    `มีคิวจองใหม่ ${booking.BookingNo} 📥`, 
+                    `ลูกค้า ${CustomerName} (ทะเบียน ${CarRegister}) จองคิววันที่ ${dateStr} เวลา ${timeStr} ที่ ${bNameText} (${statusLabel})`, 
+                    currentUserId
+                );
+            } catch (notiErr) { console.error('Noti error:', notiErr); }
 
             return NextResponse.json({
                 success: true,
@@ -486,6 +513,7 @@ export async function POST(request: NextRequest) {
                 StartTime,
                 EndTime,
                 CustomerName,
+                CustomerPhone: CustomerPhone || null,
                 CarModel,
                 CarRegister: CarRegister.replace(/\s/g, ''),
                 VinNo: VinNo || null,
@@ -502,6 +530,44 @@ export async function POST(request: NextRequest) {
                     : (IsCheckMileage === true || (parseInt(Mileage) > 0) || session.user.role === 'ADMIN') ? 1 : 0,
             },
         });
+
+        // Log creation
+        try {
+            await prisma.cM_BookingLog.create({
+                data: {
+                    BookingID: booking.BookingID,
+                    LogType: booking.Status === 1 ? 'AUTO_APPROVED' : 'CREATED',
+                    Content: booking.Status === 1
+                        ? 'Booking created and auto-approved'
+                        : 'Booking created, pending approval',
+                    CreateBy: session.user.name || session.user.email || 'System',
+                },
+            });
+        } catch (logErr) {
+            console.error('Error creating booking log:', logErr);
+        }
+
+        // Notify SERVICE_CENTER (same branch) + ADMIN
+        try {
+            const currentUserId = parseInt(session.user.id);
+            const branchInfo = await prisma.cM_MsServiceBranch.findUnique({ where: { BranchID: branchId }, select: { BranchName: true } });
+            const rawBName = branchInfo?.BranchName || '';
+            const bNameText = rawBName.startsWith('สาขา') ? rawBName : `สาขา${rawBName}`;
+            const bkStatus = booking.Status === 1 ? 'อนุมัติอัตโนมัติ' : 'รออนุมัติ';
+
+            const dObj = new Date(bookingDate);
+            const dateStr = dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+            const timeStr = EndTime ? `${StartTime} - ${EndTime} น.` : `${StartTime} น.`;
+
+            await notifyBranchAndAdminUsers(
+                branchId, 
+                booking.BookingID, 
+                NOTI_TYPES.BOOKING_NEW, 
+                `มีคิวจองใหม่ ${booking.BookingNo} 📥`, 
+                `ลูกค้า ${CustomerName} (ทะเบียน ${CarRegister}) จองคิววันที่ ${dateStr} เวลา ${timeStr} ที่ ${bNameText} (${bkStatus})`, 
+                currentUserId
+            );
+        } catch (notiErr) { console.error('Noti error:', notiErr); }
 
         return NextResponse.json({
             success: true,

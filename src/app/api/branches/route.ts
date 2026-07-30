@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
 // GET /api/branches - Get all active branches
+// CS role automatically sees only branches with online booking enabled
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
@@ -15,8 +16,15 @@ export async function GET() {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
         }
 
+        const where: Record<string, unknown> = { IsActive: true };
+
+        // CS role sees only branches that allow online booking
+        if (session.user.role === 'CS') {
+            where.AllowOnlineBooking = true;
+        }
+
         const branches = await prisma.cM_MsServiceBranch.findMany({
-            where: { IsActive: true },
+            where,
             orderBy: { BranchName: 'asc' },
         });
 

@@ -21,11 +21,7 @@ import { formatDate } from '@/lib/utils';
 import { Branch } from '@/types';
 import { ArrowLeft, Save, Plus, Trash2, Calendar } from 'lucide-react';
 
-interface SlotSetting {
-    StartTime: string;
-    EndTime: string;
-    MaxQueue: number;
-}
+
 
 interface WorkingDaySetting {
     DayOfWeek: number;
@@ -39,17 +35,7 @@ interface HolidaySetting {
     Description: string | null;
 }
 
-interface SlotOverrideSetting {
-    OverrideID: number;
-    BranchID: number;
-    OverrideDate: string;
-    StartTime: string;
-    EndTime: string;
-    IsOpen: boolean;
-    MaxQueueOverride: number | null;
-    Reason: string | null;
-    CreateDate: string;
-}
+
 
 const DAYS_OF_WEEK_NAMES = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
 
@@ -60,10 +46,9 @@ export default function BookingSettingsPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [branches, setBranches] = useState<Branch[]>([]);
     const [selectedBranch, setSelectedBranch] = useState('');
-    const [slots, setSlots] = useState<SlotSetting[]>([]);
     const [workingDays, setWorkingDays] = useState<WorkingDaySetting[]>([]);
     const [holidays, setHolidays] = useState<HolidaySetting[]>([]);
-    const [slotOverrides, setSlotOverrides] = useState<SlotOverrideSetting[]>([]);
+    const [operatingHours, setOperatingHours] = useState({ openTime: '08:30', closeTime: '17:30' });
     
     // Holiday Form State
     const [holidayInput, setHolidayInput] = useState({ date: '', description: '' });
@@ -121,8 +106,10 @@ export default function BookingSettingsPage() {
             const res = await fetch(`/api/bookings/settings?branchId=${branchId}`);
             const data = await res.json();
             if (data.success) {
-                setSlots(data.data.slots || []);
                 setWorkingDays(data.data.workingDays || []);
+                if (data.data.operatingHours) {
+                    setOperatingHours(data.data.operatingHours);
+                }
             } else {
                 setError(data.error || 'โหลดข้อมูลล้มเหลว');
             }
@@ -130,8 +117,7 @@ export default function BookingSettingsPage() {
             // Load holidays
             await fetchHolidays(branchId);
 
-            // Load slot overrides
-            await fetchSlotOverrides(branchId);
+
 
         } catch (err) {
             console.error('Error loading settings:', err);
@@ -153,40 +139,7 @@ export default function BookingSettingsPage() {
         }
     };
 
-    const fetchSlotOverrides = async (branchId: string) => {
-        try {
-            const res = await fetch(`/api/bookings/slot-overrides?branchId=${branchId}`);
-            const data = await res.json();
-            if (data.success) {
-                setSlotOverrides(data.data || []);
-            }
-        } catch (err) {
-            console.error('Error loading slot overrides:', err);
-        }
-    };
 
-    const handleRemoveSlotOverride = async (overrideId: number) => {
-        if (!confirm('ต้องการลบการปรับชั่วคราวนี้ใช่หรือไม่? สล็อตจะกลับไปใช้ค่า default')) return;
-
-        setError(null);
-        setSuccessMessage(null);
-
-        try {
-            const res = await fetch(`/api/bookings/slot-overrides?overrideId=${overrideId}`, {
-                method: 'DELETE',
-            });
-            const data = await res.json();
-            if (data.success) {
-                fetchSlotOverrides(selectedBranch);
-                setSuccessMessage('ลบการปรับชั่วคราวเรียบร้อยแล้ว สล็อตกลับไปใช้ค่า default');
-            } else {
-                setError(data.error || 'ลบล้มเหลว');
-            }
-        } catch (err) {
-            console.error('Error removing slot override:', err);
-            setError('เกิดข้อผิดพลาดในการทำรายการ');
-        }
-    };
 
     const handleBranchChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const val = e.target.value;
@@ -195,25 +148,7 @@ export default function BookingSettingsPage() {
         fetchBranchSettings(val);
     };
 
-    const handleSlotTimeChange = (index: number, field: 'StartTime' | 'EndTime', val: string) => {
-        const newSlots = [...slots];
-        newSlots[index][field] = val;
-        setSlots(newSlots);
-    };
 
-    const handleCapacityChange = (index: number, val: string) => {
-        const newSlots = [...slots];
-        newSlots[index].MaxQueue = Math.max(0, parseInt(val) || 0);
-        setSlots(newSlots);
-    };
-
-    const handleAddSlot = () => {
-        setSlots(prev => [...prev, { StartTime: '08:30', EndTime: '10:30', MaxQueue: 2 }]);
-    };
-
-    const handleRemoveSlot = (index: number) => {
-        setSlots(prev => prev.filter((_, i) => i !== index));
-    };
 
     const handleWorkingDayToggle = (dayOfWeek: number) => {
         setWorkingDays(prev => prev.map(wd => 
@@ -281,17 +216,7 @@ export default function BookingSettingsPage() {
     };
 
     const handleSaveGeneralSettings = async () => {
-        // Validation: slots
-        for (const slot of slots) {
-            if (!slot.StartTime || !slot.EndTime) {
-                setError('กรุณากรอกเวลาเริ่มต้นและเวลาสิ้นสุดให้ครบถ้วนในทุกสล็อต');
-                return;
-            }
-            if (slot.StartTime >= slot.EndTime) {
-                setError(`ช่วงเวลาไม่ถูกต้อง: เวลาเริ่มต้น ${slot.StartTime} ต้องก่อนเวลาสิ้นสุด ${slot.EndTime}`);
-                return;
-            }
-        }
+
 
         setIsSaving(true);
         setError(null);
@@ -303,14 +228,14 @@ export default function BookingSettingsPage() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     branchId: selectedBranch,
-                    configs: slots,
                     workingDays: workingDays,
+                    operatingHours: operatingHours,
                 }),
             });
 
             const data = await res.json();
             if (data.success) {
-                setSuccessMessage('บันทึกวันทำการปกติประจำสัปดาห์และรอบสล็อตบริการเรียบร้อยแล้ว');
+                setSuccessMessage('บันทึกวันทำการปกติประจำสัปดาห์เรียบร้อยแล้ว');
             } else {
                 setError(data.error || 'เกิดข้อผิดพลาดในการบันทึก');
             }
@@ -331,7 +256,7 @@ export default function BookingSettingsPage() {
 
     return (
         <>
-            <Header title="ตั้งค่ารอบสล็อตเวลาและวันหยุดสาขา" subtitle="กำหนดวันเปิดทำการ รอบการจองคิว และวันหยุดพิเศษรายสาขา" />
+            <Header title="ตั้งค่าวันทำงานและวันหยุดสาขา" subtitle="กำหนดวันเปิดทำการและวันหยุดพิเศษรายสาขา" />
 
             <div className="mt-6 space-y-6 max-w-4xl">
                 <Button
@@ -371,7 +296,7 @@ export default function BookingSettingsPage() {
                 {/* Section 1: Weekly Working Days & Slot Capacities */}
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between pb-2">
-                        <CardTitle>1. วันเปิดทำการปกติประจำสัปดาห์ และ สล็อตบริการ</CardTitle>
+                        <CardTitle>1. วันเปิดทำการปกติประจำสัปดาห์</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6 pt-4">
                         {/* Weekly Checkboxes */}
@@ -399,74 +324,41 @@ export default function BookingSettingsPage() {
                             </div>
                         </div>
 
-                        {/* Slots */}
-                        <div className="pt-4 border-t border-gray-100">
-                            <div className="flex items-center justify-between mb-4">
-                                <h4 className="text-sm font-semibold text-gray-700">รอบเวลาให้บริการและจำนวนโควตาจองคิว</h4>
-                                <Button size="sm" variant="outline" onClick={handleAddSlot} className="flex items-center gap-1 text-xs">
-                                    <Plus className="w-3.5 h-3.5" />
-                                    เพิ่มช่วงเวลา
-                                </Button>
+                        {/* Operating Hours Setting */}
+                        <div className="space-y-3 pt-4 border-t border-gray-100">
+                            <h4 className="text-sm font-semibold text-gray-700">⏰ เวลาเปิด - ปิดทำการประจำสาขา (Operating Hours)</h4>
+                            <div className="grid grid-cols-2 gap-4 max-w-md">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">เวลาเปิดทำการ</label>
+                                    <select
+                                        value={operatingHours.openTime}
+                                        onChange={(e) => setOperatingHours(prev => ({ ...prev, openTime: e.target.value }))}
+                                        className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
+                                    >
+                                        <option value="07:30">07:30 น.</option>
+                                        <option value="08:00">08:00 น.</option>
+                                        <option value="08:30">08:30 น.</option>
+                                        <option value="09:00">09:00 น.</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">เวลาปิดทำการ</label>
+                                    <select
+                                        value={operatingHours.closeTime}
+                                        onChange={(e) => setOperatingHours(prev => ({ ...prev, closeTime: e.target.value }))}
+                                        className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
+                                    >
+                                        <option value="16:30">16:30 น.</option>
+                                        <option value="17:00">17:00 น.</option>
+                                        <option value="17:30">17:30 น.</option>
+                                        <option value="18:00">18:00 น.</option>
+                                        <option value="18:30">18:30 น.</option>
+                                    </select>
+                                </div>
                             </div>
-                            
-                            {slots.length === 0 ? (
-                                <div className="text-center p-8 bg-gray-50 border border-gray-100 rounded-lg text-gray-400 text-sm">
-                                    ไม่มีการตั้งค่าช่วงเวลา (กดปุ่ม &quot;เพิ่มช่วงเวลา&quot; เพื่อกำหนดเวลาและโควตาคิว)
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {slots.map((slot, index) => (
-                                        <div key={index} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
-                                            <div className="flex-1 flex items-center gap-2">
-                                                <span className="text-xs text-gray-500 font-semibold min-w-10">⏰ เริ่ม</span>
-                                                <Input
-                                                    type="time"
-                                                    value={slot.StartTime}
-                                                    onChange={(e) => handleSlotTimeChange(index, 'StartTime', e.target.value)}
-                                                    className="w-full sm:w-32 bg-white"
-                                                    required
-                                                />
-                                                <span className="text-xs text-gray-500 font-semibold">ถึง</span>
-                                                <Input
-                                                    type="time"
-                                                    value={slot.EndTime}
-                                                    onChange={(e) => handleSlotTimeChange(index, 'EndTime', e.target.value)}
-                                                    className="w-full sm:w-32 bg-white"
-                                                    required
-                                                />
-                                            </div>
-
-                                            <div className="flex items-center gap-3 justify-end">
-                                                <span className="text-xs text-gray-500 font-semibold">โควตา</span>
-                                                <div className="w-24">
-                                                    <Input
-                                                        type="number"
-                                                        value={slot.MaxQueue.toString()}
-                                                        onChange={(e) => handleCapacityChange(index, e.target.value)}
-                                                        placeholder="โควตา"
-                                                        required
-                                                        min="0"
-                                                        className="bg-white text-right"
-                                                    />
-                                                </div>
-                                                <span className="text-xs text-gray-500 font-semibold">คิว</span>
-
-                                                <Button
-                                                    variant="ghost"
-                                                    onClick={() => handleRemoveSlot(index)}
-                                                    className="text-red-500 hover:bg-red-50 hover:text-red-700 p-2 h-9 w-9"
-                                                    title="ลบช่วงเวลานี้"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                         </div>
 
-                        <div className="flex justify-end pt-4 border-t border-gray-100">
+                        <div className="flex justify-end pt-4 border-t border-gray-100 mt-6">
                             <Button onClick={handleSaveGeneralSettings} isLoading={isSaving}>
                                 <Save className="w-4 h-4 mr-2" />
                                 บันทึกค่าระบบพื้นฐาน
@@ -475,83 +367,10 @@ export default function BookingSettingsPage() {
                     </CardContent>
                 </Card>
 
-                {/* Section 2: Slot Overrides */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle>2. รายการปรับโควตาสล็อตชั่วคราว (รายวัน)</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-4 pt-4">
-                        <p className="text-xs text-gray-500">แสดงรายการปรับโควตา/เปิดปิดสล็อตชั่วคราวทั้งหมด (สามารถเพิ่มจากหน้าจัดการคิวโดยกดไอคอน ✏️ ที่สล็อตบนตารางเวลาว่างประจำวัน)</p>
-                        <div className="overflow-x-auto border border-gray-100 rounded-lg">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
-                                        <th className="px-4 py-3">วันที่</th>
-                                        <th className="px-4 py-3">สล็อตเวลา</th>
-                                        <th className="px-4 py-3">สถานะ</th>
-                                        <th className="px-4 py-3">โควตาปรับ</th>
-                                        <th className="px-4 py-3">เหตุผล</th>
-                                        <th className="px-4 py-3 text-center">จัดการ</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100 text-sm text-gray-600">
-                                    {slotOverrides.length === 0 ? (
-                                        <tr>
-                                            <td colSpan={6} className="px-4 py-6 text-center text-gray-400 text-xs">
-                                                ยังไม่มีการปรับโควตาชั่วคราว
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        slotOverrides.map((o) => (
-                                            <tr key={o.OverrideID} className="hover:bg-gray-50/50">
-                                                <td className="px-4 py-3 font-semibold text-gray-700 flex items-center gap-1.5">
-                                                    <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                                                    {formatDate(o.OverrideDate)}
-                                                </td>
-                                                <td className="px-4 py-3 font-medium">
-                                                    {o.StartTime} - {o.EndTime} น.
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    {o.IsOpen ? (
-                                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">🟠 ปรับโควตา</span>
-                                                    ) : (
-                                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">🔴 ปิดชั่วคราว</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-3">
-                                                    {o.IsOpen && o.MaxQueueOverride !== null ? (
-                                                        <span className="font-bold text-orange-600">{o.MaxQueueOverride} คิว</span>
-                                                    ) : o.IsOpen ? (
-                                                        <span className="text-gray-400">ค่า default</span>
-                                                    ) : (
-                                                        <span className="text-red-400">-</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-3 text-xs">{o.Reason || '-'}</td>
-                                                <td className="px-4 py-3 text-center">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleRemoveSlotOverride(o.OverrideID)}
-                                                        className="text-red-500 hover:bg-red-50 hover:text-red-700 p-1.5 h-8 w-8"
-                                                        title="ลบการปรับชั่วคราว"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </Button>
-                                                </td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
-                        </div>
-                    </CardContent>
-                </Card>
-
                 {/* Section 3: Special Holidays / Closures */}
                 <Card>
                     <CardHeader>
-                        <CardTitle>3. วันหยุดพิเศษ หรือ วันปิดทำการชั่วคราว (รายวัน)</CardTitle>
+                        <CardTitle>2. วันหยุดพิเศษ หรือ วันปิดทำการชั่วคราว (รายวัน)</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-6 pt-4">
                         {/* Add Holiday Form */}

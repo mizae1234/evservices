@@ -28,6 +28,7 @@ export async function GET() {
         return NextResponse.json({
             success: true,
             data: options,
+            raw: mileages,
             // ส่ง raw values ไปด้วยสำหรับ validation
             values: mileages.map((m) => m.Value),
         });

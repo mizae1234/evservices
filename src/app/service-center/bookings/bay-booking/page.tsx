@@ -4,11 +4,16 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/layouts';
-import { Card, CardContent, Button, Input, LoadingPage, Select } from '@/components/ui';
-import { ArrowLeft, Clock, Check, Loader2 } from 'lucide-react';
+import {
+    Card, CardContent, CardHeader, CardTitle,
+    Button, Input, Select, LoadingPage,
+} from '@/components/ui';
+import { ArrowLeft, Clock, Check, Loader2, Plus, Trash2, GripVertical, Save, Wrench, ToggleLeft, ToggleRight, Globe } from 'lucide-react';
+import { CAR_MODEL_FLAT_RATES } from '@/lib/flat-rates-data';
 
 interface CarModel {
-    CarModelID: number;
+    ModelID: number;
+    ModelCode: string;
     Brand: string;
     ModelName: string;
 }
@@ -24,6 +29,7 @@ interface FlatRate {
     FlatRateID: number;
     ServiceTypeID: number;
     MileageID: number | null;
+    CarModelID: number | null;
     DurationMinutes: number;
     Description: string | null;
     Mileage: { MileageID: number; Value: number; Label: string } | null;
@@ -60,12 +66,13 @@ function BayBookingPageInner() {
     const router = useRouter();
     const { data: session } = useSession();
     const searchParams = useSearchParams();
+    const isCS = session?.user?.role === 'CS';
 
     const bayId = searchParams.get('bayId') || '';
     const bayName = searchParams.get('bayName') || 'Bay';
     const branchId = searchParams.get('branchId') || '';
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
-    const initialStartTime = searchParams.get('startTime') || '08:00';
+    const initialStartTime = searchParams.get('startTime') || '08:30';
 
     // Master data
     const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
@@ -83,6 +90,7 @@ function BayBookingPageInner() {
     const [formStartTime, setFormStartTime] = useState(initialStartTime);
     // Form — Step 4: Customer Info
     const [customerName, setCustomerName] = useState('');
+    const [customerPhone, setCustomerPhone] = useState('');
     const [carRegister, setCarRegister] = useState('');
     const [carModel, setCarModel] = useState('');
     const [vinNo, setVinNo] = useState('');
@@ -161,7 +169,7 @@ function BayBookingPageInner() {
     });
 
     // Find other free slots in the current bay
-    const openMin = timeToMinutes('08:00');
+    const openMin = timeToMinutes('08:30');
     const closeMin = timeToMinutes('17:30');
     const alternativeSlots: { start: string; end: string }[] = [];
     
@@ -189,9 +197,10 @@ function BayBookingPageInner() {
 
     // Current step
     const currentStep = !selectedServiceType ? 1
-        : selectedST?.RequiresMileage && !selectedMileage ? 2
-        : effectiveDuration <= 0 ? 2
-        : 3;
+        : !carModel ? 2
+        : selectedST?.RequiresMileage && !selectedMileage ? 3
+        : effectiveDuration <= 0 ? 3
+        : 4;
 
     // Load master data
     useEffect(() => {
@@ -223,6 +232,29 @@ function BayBookingPageInner() {
     }, [branchId, date]);
 
     // Auto-fill duration from Flat Rate
+
+    // Helper to calculate custom duration
+    const getCalculatedDuration = (stId, mileageValue) => {
+        if (!carModel) return null;
+        const cm = carModels.find(m => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName) === carModel);
+        if (!cm) return null;
+        
+        let modelKey = cm.ModelCode;
+        if (cm.ModelID >= 11 && cm.ModelID <= 12) modelKey = 'Y PLUS TAXI'; // Y490, Y410
+        else if (cm.ModelID === 13) modelKey = 'ES TAXI'; // ES
+        else if (modelKey.startsWith('Y')) modelKey = 'Y PLUS'; // Handles Y490-RETAIL, Y410-RETAIL, etc.
+        else if (modelKey === 'ES-RETAIL') modelKey = 'ES'; // Handles ES-RETAIL
+        else if (modelKey === 'HT') modelKey = 'HYPTEC HT';
+        else if (modelKey === 'M8-PHEV') modelKey = 'M8 PHEV';
+        
+        const ratesForModel = CAR_MODEL_FLAT_RATES[modelKey];
+        if (ratesForModel && mileageValue) {
+            const hr = ratesForModel[mileageValue];
+            if (hr) return hr * 60; // convert to minutes
+        }
+        return null;
+    };
+
     useEffect(() => {
         if (!selectedServiceType) { setDuration(0); return; }
         const stId = parseInt(selectedServiceType);
@@ -230,24 +262,52 @@ function BayBookingPageInner() {
         if (selectedST?.RequiresMileage && selectedMileage) {
             const mileageId = parseInt(selectedMileage);
             const rate = flatRates.find(fr => fr.ServiceTypeID === stId && fr.MileageID === mileageId);
-            if (rate) { setDuration(rate.DurationMinutes); setUseCustomDuration(false); }
+            
+            // Override with CAR_MODEL_FLAT_RATES if applicable
+            let finalDuration = rate ? rate.DurationMinutes : 0;
+            if (rate && rate.Mileage) {
+                const custom = getCalculatedDuration(stId, rate.Mileage.Value);
+                if (custom) {
+                    finalDuration = custom;
+                    // If ServiceType is "เช็คระยะ + ซ่อม" (ID = 2), add 60 minutes
+                    if (stId === 2) {
+                        finalDuration += 60;
+                    }
+                }
+            }
+            
+            if (finalDuration > 0) { setDuration(finalDuration); setUseCustomDuration(false); }
             else { setDuration(0); }
         } else if (selectedST && !selectedST.RequiresMileage) {
             const rate = flatRates.find(fr => fr.ServiceTypeID === stId && fr.MileageID === null);
             if (rate) { setDuration(rate.DurationMinutes); setUseCustomDuration(false); }
             else { setDuration(120); setUseCustomDuration(false); }
         }
-    }, [selectedServiceType, selectedMileage, flatRates, selectedST]);
+    }, [selectedServiceType, selectedMileage, flatRates, selectedST, carModel, carModels]);
 
-    // Mileage options for the selected service type
+    // Mileage options for the selected service type, filtered by selected car model
+    const lastMileageNum = parseInt(lastMileage) || 0;
     const relevantMileages = selectedST?.RequiresMileage
-        ? flatRates
-            .filter(fr => fr.ServiceTypeID === parseInt(selectedServiceType) && fr.Mileage)
-            .map(fr => ({
-                value: fr.MileageID!.toString(),
-                label: fr.Mileage!.Label,
-                duration: fr.DurationMinutes,
-            }))
+        ? (() => {
+            const stId = parseInt(selectedServiceType);
+            // Find selected car model ID
+            const cm = carModel ? carModels.find(m => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName) === carModel) : null;
+            let rates = flatRates.filter(fr => fr.ServiceTypeID === stId && fr.Mileage);
+            // Filter by car model if selected
+            if (cm) {
+                const modelRates = rates.filter(fr => fr.CarModelID === cm.ModelID);
+                if (modelRates.length > 0) rates = modelRates;
+            }
+            // Deduplicate by MileageID
+            const seen = new Map<string, { value: string; label: string; duration: number; disabled: boolean }>();
+            for (const fr of rates) {
+                const key = fr.MileageID!.toString();
+                if (seen.has(key)) continue;
+                const disabled = lastMileageNum > 0 && fr.Mileage!.Value <= lastMileageNum;
+                seen.set(key, { value: key, label: fr.Mileage!.Label, duration: fr.DurationMinutes, disabled });
+            }
+            return Array.from(seen.values());
+        })()
         : [];
 
     // Vehicle search
@@ -366,6 +426,7 @@ function BayBookingPageInner() {
         if (selectedST?.RequiresMileage && !selectedMileage) { setError('กรุณาเลือกระยะทาง'); return; }
         if (!effectiveDuration || effectiveDuration <= 0) { setError('กรุณาระบุระยะเวลา'); return; }
         if (!customerName.trim()) { setError('กรุณาระบุชื่อลูกค้า'); return; }
+        if (!customerPhone.trim()) { setError('กรุณาระบุเบอร์โทรลูกค้า'); return; }
         if (selectedST?.RequiresMileage && !lastMileage.trim()) { setError('กรุณาระบุเลขไมล์ล่าสุด'); return; }
         if (!carRegister.trim()) { setError('กรุณาระบุทะเบียนรถ'); return; }
         if (!carModel.trim()) { setError('กรุณาระบุรุ่นรถ'); return; }
@@ -380,6 +441,7 @@ function BayBookingPageInner() {
                     StartTime: formStartTime,
                     EndTime: endTime,
                     CustomerName: customerName.trim(),
+                    CustomerPhone: customerPhone.trim() || undefined,
                     CarModel: carModel.trim(),
                     CarRegister: carRegister.trim(),
                     VinNo: vinNo || null,
@@ -442,7 +504,7 @@ function BayBookingPageInner() {
                 subtitle={`${formatThaiDate(date)} • เริ่ม ${initialStartTime}`}
             />
 
-            <div className="p-4 lg:p-6 max-w-2xl">
+            <div className="p-4 lg:p-6 w-full max-w-7xl mx-auto">
                 {/* Back */}
                 <Button
                     variant="ghost"
@@ -468,17 +530,19 @@ function BayBookingPageInner() {
                         >
                             🚕 EV7 (รถ Taxi)
                         </button>
-                        <button
-                            type="button"
-                            onClick={() => handleBookingTypeChange('RETAIL')}
-                            className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                                bookingType === 'RETAIL'
-                                    ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
-                                    : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                            }`}
-                        >
-                            🚗 Retail (ลูกค้าทั่วไป)
-                        </button>
+                        {!isCS && (
+                            <button
+                                type="button"
+                                onClick={() => handleBookingTypeChange('RETAIL')}
+                                className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                                    bookingType === 'RETAIL'
+                                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
+                                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                                }`}
+                            >
+                                🚗 Retail (ลูกค้าทั่วไป)
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => handleBookingTypeChange('LINEMAN')}
@@ -522,27 +586,201 @@ function BayBookingPageInner() {
                         </CardContent>
                     </Card>
 
-                    {/* ========== STEP 2: ระยะทาง (ถ้าเป็นเช็คระยะ) ========== */}
+                    {/* ========== STEP 2: ข้อมูลลูกค้าและรถยนต์ ========== */}
+                    <Card className={currentStep >= 2 ? '' : 'opacity-50'}>
+                            <CardContent className="p-5">
+                                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                    <span className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm">2</span>
+                                    ข้อมูลลูกค้า
+                                </h3>
+                                <div className="space-y-4">
+                                    {activeBookingWarning && (
+                                        isSameDayDuplicate ? (
+                                            <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl text-sm text-red-800 mb-4">
+                                                <div className="font-bold flex items-center gap-1.5 text-red-900">
+                                                    <span>❌ รถทะเบียนนี้มีคิวการจองในวันที่เลือกแล้ว</span>
+                                                </div>
+                                                <div className="mt-1 text-xs text-red-700 leading-relaxed">
+                                                    ไม่สามารถจองซ้ำภายในวันเดียวกันได้ <br/>
+                                                    เลขที่การจอง: <strong className="text-red-900">{activeBookingWarning.BookingNo}</strong> | 
+                                                    เวลา: <strong className="text-red-900">{activeBookingWarning.StartTime} - {activeBookingWarning.EndTime} น.</strong> <br/>
+                                                    ลูกค้า: <strong className="text-red-900">{activeBookingWarning.CustomerName}</strong> | 
+                                                    สาขาที่จอง: <strong className="text-red-900">{activeBookingWarning.BranchName}</strong>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-sm text-amber-800 mb-4">
+                                                <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                                                    <span>⚠️ คันนี้เคยโทรมาจองคิวแล้ว</span>
+                                                </div>
+                                                <div className="mt-1 text-xs text-amber-700 leading-relaxed">
+                                                    เลขที่การจอง: <strong className="text-amber-900">{activeBookingWarning.BookingNo}</strong> | 
+                                                    วันที่จอง: <strong className="text-amber-900">{new Date(activeBookingWarning.BookingDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</strong> | 
+                                                    เวลา: <strong className="text-amber-900">{activeBookingWarning.StartTime} - {activeBookingWarning.EndTime} น.</strong> <br/>
+                                                    ลูกค้า: <strong className="text-amber-900">{activeBookingWarning.CustomerName}</strong> | 
+                                                    สาขาที่จอง: <strong className="text-amber-900">{activeBookingWarning.BranchName}</strong>
+                                                </div>
+                                            </div>
+                                        )
+                                    )}
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {/* Car Register with Suggestions */}
+                                        <div className="relative">
+                                            <Input
+                                                label={`ทะเบียนรถ * ${bookingType !== 'RETAIL' ? '(พิมพ์เพื่อค้นหา)' : ''}`}
+                                                placeholder="เช่น กข 1234"
+                                                value={carRegister}
+                                                onChange={(e) => handleCarRegisterChange(e.target.value)}
+                                                onFocus={() => { if (vehicleSuggestions.length > 0) setShowSuggestions(true); }}
+                                                onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); }}
+                                            />
+                                            {isSearchingVehicles && (
+                                                <div className="absolute right-3 top-9 text-sm text-gray-500 animate-pulse">กำลังค้นหา...</div>
+                                            )}
+                                            {showSuggestions && vehicleSuggestions.length > 0 && (
+                                                <div className="absolute z-10 left-0 right-0 mt-1 bg-white border-2 border-blue-300 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                                                    {vehicleSuggestions.map((v) => (
+                                                        <button
+                                                            key={v.InventoryItemID}
+                                                            type="button"
+                                                            onMouseDown={() => handleVehicleSelect(v)}
+                                                            className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b last:border-0 border-gray-100"
+                                                        >
+                                                            <span className="font-bold text-gray-900 text-sm">{v.RegisterNo}</span>
+                                                            <span className="text-xs text-gray-600 ml-2">
+                                                                {v.Model} • {v.CustomerName}
+                                                            </span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <Input
+                                            label="เบอร์โทรลูกค้า *"
+                                            placeholder="0xxxxxxxxx"
+                                            value={customerPhone}
+                                            onChange={(e) => setCustomerPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                                            maxLength={10}
+                                        />
+                                        <Input
+                                            label="ชื่อลูกค้า *"
+                                            placeholder="ชื่อ-นามสกุล"
+                                            value={customerName}
+                                            onChange={(e) => setCustomerName(e.target.value)}
+                                        />
+                                        <Input
+                                            label={selectedST?.RequiresMileage ? "เลขไมล์ล่าสุด (กิโลเมตร) *" : "เลขไมล์ล่าสุด (กิโลเมตร)"}
+                                            type="number"
+                                            placeholder="ระบุเลขไมล์ล่าสุดของรถยนต์"
+                                            value={lastMileage}
+                                            onChange={(e) => setLastMileage(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <Select
+                                            label="รุ่นรถ *"
+                                            value={carModel}
+                                            onChange={(e) => setCarModel(e.target.value)}
+                                            options={carModels
+                                                .filter(m => {
+                                                    const isTaxi = [11, 12, 13].includes(m.ModelID);
+                                                    return (bookingType === 'EV7' || bookingType === 'LINEMAN') ? isTaxi : !isTaxi;
+                                                })
+                                                .map(m => ({
+                                                    value: m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName,
+                                                    label: m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName,
+                                                }))}
+                                            placeholder="เลือกรุ่นรถ"
+                                        />
+                                        <Input
+                                            label="VIN No."
+                                            placeholder="เลขตัวถัง"
+                                            value={vinNo}
+                                            onChange={(e) => setVinNo(e.target.value)}
+                                            disabled={isVinPrefilled}
+                                        />
+                                        <Input
+                                            label="Project Type"
+                                            placeholder="Owner / Rental / Fleet"
+                                            value={projectType}
+                                            onChange={(e) => setProjectType(e.target.value)}
+                                            disabled={isProjectTypePrefilled}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
+                                        <textarea
+                                            placeholder="รายละเอียดเพิ่มเติม..."
+                                            value={claimDetail}
+                                            onChange={(e) => setClaimDetail(e.target.value)}
+                                            rows={2}
+                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+
+
+                    {/* ========== Warning: ไมล์อาจเกินระยะเช็ค ========== */}
+                    {selectedMileage && lastMileageNum > 0 && (() => {
+                        const fr = flatRates.find(f => f.MileageID?.toString() === selectedMileage && f.Mileage);
+                        if (!fr || !fr.Mileage) return null;
+                        const targetMileage = fr.Mileage.Value;
+                        const kmRemaining = targetMileage - lastMileageNum;
+                        if (kmRemaining <= 0) return null;
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        const bookingDate = new Date(date);
+                        bookingDate.setHours(0, 0, 0, 0);
+                        const daysUntilBooking = Math.max(0, Math.ceil((bookingDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+                        const estimatedMileageOnBookingDay = lastMileageNum + (daysUntilBooking * 400);
+                        if (estimatedMileageOnBookingDay > targetMileage) {
+                            return (
+                                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
+                                    <p className="font-bold text-amber-900 flex items-center gap-1.5">
+                                        ⚠️ ไมล์อาจเกินระยะเช็คที่เลือก
+                                    </p>
+                                    <p className="text-sm text-amber-800 mt-1.5 leading-relaxed">
+                                        ไมล์ปัจจุบัน <strong>{lastMileageNum.toLocaleString()}</strong> กม. → ระยะเช็ค <strong>{targetMileage.toLocaleString()}</strong> กม. 
+                                        (เหลืออีก <strong>{kmRemaining.toLocaleString()}</strong> กม.)
+                                    </p>
+                                    <p className="text-sm text-amber-800 mt-1 leading-relaxed">
+                                        เฉลี่ยวิ่งวันละ 400 กม. อีก <strong>{daysUntilBooking}</strong> วัน 
+                                        ไมล์โดยประมาณวันจองจะอยู่ที่ <strong>~{estimatedMileageOnBookingDay.toLocaleString()}</strong> กม. ซึ่งเกินระยะเช็คแล้ว
+                                    </p>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
+
+                    {/* ========== STEP 3: ระยะทาง (ถ้าเป็นเช็คระยะ) ========== */}
                     {selectedST?.RequiresMileage && (
-                        <Card className={currentStep >= 2 ? '' : 'opacity-50'}>
+                        <Card className={currentStep >= 3 ? '' : 'opacity-50'}>
                             <CardContent className="p-5">
                                 <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-                                    <span className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm">2</span>
+                                    <span className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm">3</span>
                                     เลือกระยะทาง
                                 </h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                                     {relevantMileages.map(m => (
                                         <button
                                             key={m.value}
-                                            onClick={() => setSelectedMileage(m.value)}
+                                            onClick={() => !m.disabled && setSelectedMileage(m.value)}
+                                            disabled={m.disabled}
                                             className={`p-3 rounded-xl border-2 text-center transition-all ${
-                                                selectedMileage === m.value
-                                                    ? 'border-blue-500 bg-blue-50 shadow-md'
-                                                    : 'border-gray-200 hover:border-blue-300'
+                                                m.disabled
+                                                    ? 'border-gray-100 bg-gray-100 opacity-50 cursor-not-allowed'
+                                                    : selectedMileage === m.value
+                                                        ? 'border-blue-500 bg-blue-50 shadow-md'
+                                                        : 'border-gray-200 hover:border-blue-300'
                                             }`}
                                         >
-                                            <p className="font-bold text-sm text-gray-900">{m.label}</p>
-                                            <p className="text-xs text-blue-600 font-medium mt-0.5">{formatDuration(m.duration)}</p>
+                                            <p className={`font-bold text-sm ${m.disabled ? 'text-gray-400' : 'text-gray-900'}`}>{m.label}</p>
+                                            <p className={`text-xs font-medium mt-0.5 ${m.disabled ? 'text-gray-300' : 'text-blue-600'}`}>{formatDuration(m.duration)}</p>
                                         </button>
                                     ))}
                                 </div>
@@ -665,152 +903,25 @@ function BayBookingPageInner() {
                                         />
                                     </div>
                                 </div>
-                                {!useCustomDuration ? (
-                                    <button onClick={() => { setUseCustomDuration(true); setCustomDuration(effectiveDuration.toString()); }}
-                                        className="text-blue-600 hover:underline text-xs">
-                                        ปรับระยะเวลาเอง
-                                    </button>
-                                ) : (
-                                    <div className="flex items-center gap-1">
-                                        <input type="number" value={customDuration} onChange={(e) => setCustomDuration(e.target.value)}
-                                            min={30} step={30} className="border border-gray-300 rounded px-2 py-1 w-20 text-sm" />
-                                        <span className="text-xs text-gray-500">นาที</span>
-                                        <button onClick={() => setUseCustomDuration(false)} className="text-xs text-gray-400 hover:underline ml-1">
-                                            ใช้ค่าเดิม
+                                {session?.user?.role !== 'CS' && (
+                                    !useCustomDuration ? (
+                                        <button onClick={() => { setUseCustomDuration(true); setCustomDuration(effectiveDuration.toString()); }}
+                                            className="text-blue-600 hover:underline text-xs">
+                                            ปรับระยะเวลาเอง
                                         </button>
-                                    </div>
+                                    ) : (
+                                        <div className="flex items-center gap-1">
+                                            <input type="number" value={customDuration} onChange={(e) => setCustomDuration(e.target.value)}
+                                                min={30} step={30} className="border border-gray-400 rounded px-2 py-1 w-20 text-sm text-gray-900 font-bold bg-white" />
+                                            <span className="text-xs text-gray-500">นาที</span>
+                                            <button onClick={() => setUseCustomDuration(false)} className="text-xs text-gray-400 hover:underline ml-1">
+                                                ใช้ค่าเดิม
+                                            </button>
+                                        </div>
+                                    )
                                 )}
                             </div>
                         </div>
-                    )}
-
-                    {/* ========== STEP 3: ข้อมูลลูกค้า ========== */}
-                    {effectiveDuration > 0 && (
-                        <Card>
-                            <CardContent className="p-5">
-                                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                    <span className="bg-blue-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm">
-                                        {selectedST?.RequiresMileage ? '3' : '2'}
-                                    </span>
-                                    ข้อมูลลูกค้า
-                                </h3>
-                                <div className="space-y-4">
-                                    {/* Car Register with lookup */}
-                                    <div className="relative">
-                                        <Input
-                                            label={`ทะเบียนรถ * ${bookingType !== 'RETAIL' ? '(พิมพ์เพื่อค้นหา)' : ''}`}
-                                            placeholder="เช่น กข 1234"
-                                            value={carRegister}
-                                            onChange={(e) => handleCarRegisterChange(e.target.value)}
-                                            onFocus={() => { if (vehicleSuggestions.length > 0) setShowSuggestions(true); }}
-                                            onBlur={() => { setTimeout(() => setShowSuggestions(false), 200); }}
-                                        />
-                                        {isSearchingVehicles && (
-                                            <div className="absolute right-3 top-9 text-sm text-gray-500 animate-pulse">กำลังค้นหา...</div>
-                                        )}
-                                        {showSuggestions && vehicleSuggestions.length > 0 && (
-                                            <div className="absolute z-10 left-0 right-0 mt-1 bg-white border-2 border-blue-300 rounded-xl shadow-lg max-h-48 overflow-y-auto">
-                                                {vehicleSuggestions.map((v) => (
-                                                    <button
-                                                        key={v.InventoryItemID}
-                                                        type="button"
-                                                        onMouseDown={() => handleVehicleSelect(v)}
-                                                        className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors border-b last:border-0 border-gray-100"
-                                                    >
-                                                        <span className="font-bold text-gray-900 text-sm">{v.RegisterNo}</span>
-                                                        <span className="text-xs text-gray-600 ml-2">
-                                                            {v.Model} • {v.CustomerName}
-                                                        </span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {activeBookingWarning && (
-                                        isSameDayDuplicate ? (
-                                            <div className="p-4 bg-red-50 border-2 border-red-200 rounded-xl text-sm text-red-800">
-                                                <div className="font-bold flex items-center gap-1.5 text-red-900">
-                                                    <span>❌ รถทะเบียนนี้มีคิวการจองในวันที่เลือกแล้ว</span>
-                                                </div>
-                                                <div className="mt-1 text-xs text-red-700 leading-relaxed">
-                                                    ไม่สามารถจองซ้ำภายในวันเดียวกันได้ <br/>
-                                                    เลขที่การจอง: <strong className="text-red-900">{activeBookingWarning.BookingNo}</strong> | 
-                                                    เวลา: <strong className="text-red-900">{activeBookingWarning.StartTime} - {activeBookingWarning.EndTime} น.</strong> <br/>
-                                                    ลูกค้า: <strong className="text-red-900">{activeBookingWarning.CustomerName}</strong> | 
-                                                    สาขาที่จอง: <strong className="text-red-900">{activeBookingWarning.BranchName}</strong>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="p-4 bg-amber-50 border-2 border-amber-200 rounded-xl text-sm text-amber-800">
-                                                <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                                                    <span>⚠️ คันนี้เคยโทรมาจองคิวแล้ว</span>
-                                                </div>
-                                                <div className="mt-1 text-xs text-amber-700 leading-relaxed">
-                                                    เลขที่การจอง: <strong className="text-amber-900">{activeBookingWarning.BookingNo}</strong> | 
-                                                    วันที่จอง: <strong className="text-amber-900">{new Date(activeBookingWarning.BookingDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}</strong> | 
-                                                    เวลา: <strong className="text-amber-900">{activeBookingWarning.StartTime} - {activeBookingWarning.EndTime} น.</strong> <br/>
-                                                    ลูกค้า: <strong className="text-amber-900">{activeBookingWarning.CustomerName}</strong> | 
-                                                    สาขาที่จอง: <strong className="text-amber-900">{activeBookingWarning.BranchName}</strong>
-                                                </div>
-                                            </div>
-                                        )
-                                    )}
-
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <Input
-                                            label="ชื่อลูกค้า *"
-                                            placeholder="ชื่อ-นามสกุล"
-                                            value={customerName}
-                                            onChange={(e) => setCustomerName(e.target.value)}
-                                        />
-                                        <Input
-                                            label={selectedST?.RequiresMileage ? "เลขไมล์ล่าสุด (กิโลเมตร) *" : "เลขไมล์ล่าสุด (กิโลเมตร)"}
-                                            type="number"
-                                            placeholder="ระบุเลขไมล์ล่าสุดของรถยนต์"
-                                            value={lastMileage}
-                                            onChange={(e) => setLastMileage(e.target.value)}
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <Select
-                                            label="รุ่นรถ *"
-                                            value={carModel}
-                                            onChange={(e) => setCarModel(e.target.value)}
-                                            options={carModels.map(m => ({
-                                                value: m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName,
-                                                label: m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName,
-                                            }))}
-                                            placeholder="เลือกรุ่นรถ"
-                                        />
-                                        <Input
-                                            label="VIN No."
-                                            placeholder="เลขตัวถัง"
-                                            value={vinNo}
-                                            onChange={(e) => setVinNo(e.target.value)}
-                                            disabled={isVinPrefilled}
-                                        />
-                                        <Input
-                                            label="Project Type"
-                                            placeholder="Owner / Rental / Fleet"
-                                            value={projectType}
-                                            onChange={(e) => setProjectType(e.target.value)}
-                                            disabled={isProjectTypePrefilled}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">หมายเหตุ</label>
-                                        <textarea
-                                            placeholder="รายละเอียดเพิ่มเติม..."
-                                            value={claimDetail}
-                                            onChange={(e) => setClaimDetail(e.target.value)}
-                                            rows={2}
-                                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                        />
-                                    </div>
-                                </div>
-                            </CardContent>
-                        </Card>
                     )}
 
                     {/* Error */}

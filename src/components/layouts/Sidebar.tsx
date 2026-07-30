@@ -24,9 +24,10 @@ import {
     Menu,
     X,
     Calendar,
+    Wrench,
     Layers,
     Settings,
-    Wrench,
+    BarChart3,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -74,6 +75,12 @@ const menuItems: MenuItem[] = [
         icon: <FilePlus className="w-5 h-5" />,
         roles: ['SERVICE_CENTER', 'ADMIN'],
     },
+    {
+        label: 'รายงานการจอง',
+        href: '/service-center/bookings/reports',
+        icon: <BarChart3 className="w-5 h-5" />,
+        roles: ['SERVICE_CENTER', 'ADMIN', 'CS'],
+    },
     // Admin Items
     {
         label: 'Admin Dashboard',
@@ -109,6 +116,12 @@ const menuItems: MenuItem[] = [
         label: 'จัดการ Flat Rate',
         href: '/admin/flat-rates',
         icon: <Settings className="w-5 h-5" />,
+        roles: ['ADMIN'],
+    },
+    {
+        label: 'จัดการสาขา',
+        href: '/admin/branches',
+        icon: <Building className="w-5 h-5" />,
         roles: ['ADMIN'],
     },
     {

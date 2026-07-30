@@ -23,7 +23,7 @@ function minutesToTime(minutes: number): string {
 }
 
 // Default branch operating hours (can be overridden by branch config)
-const DEFAULT_OPEN_TIME = '08:00';
+const DEFAULT_OPEN_TIME = '08:30';
 const DEFAULT_CLOSE_TIME = '17:30';
 
 const THAI_DAYS = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
@@ -136,19 +136,14 @@ export async function GET(request: NextRequest) {
             orderBy: { StartTime: 'asc' },
         });
 
-        // 5. Get branch operating hours from slot config (use first/last slot times)
-        const slotConfigs = await prisma.cM_BranchSlotConfig.findMany({
-            where: { BranchID: branchId, IsActive: true },
-            orderBy: { StartTime: 'asc' },
+        // 5. Get branch operating hours from branch settings
+        const branchInfo = await prisma.cM_MsServiceBranch.findUnique({
+            where: { BranchID: branchId },
+            select: { OpenTime: true, CloseTime: true },
         });
 
-        let openTime = DEFAULT_OPEN_TIME;
-        let closeTime = DEFAULT_CLOSE_TIME;
-
-        if (slotConfigs.length > 0) {
-            openTime = slotConfigs[0].StartTime;
-            closeTime = slotConfigs[slotConfigs.length - 1].EndTime;
-        }
+        let openTime = branchInfo?.OpenTime || DEFAULT_OPEN_TIME;
+        let closeTime = branchInfo?.CloseTime || DEFAULT_CLOSE_TIME;
 
         const openMinutes = timeToMinutes(openTime);
         const closeMinutes = timeToMinutes(closeTime);
