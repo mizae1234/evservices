@@ -148,6 +148,8 @@ export async function POST(request: NextRequest) {
             BayID,
             ServiceTypeID,
             DurationMinutes,
+            // Force overlap flag (SERVICE_CENTER/ADMIN only)
+            forceOverlap,
         } = body;
 
         const bookingType = BookingType === 'RETAIL' ? 'RETAIL' : BookingType === 'LINEMAN' ? 'LINEMAN' : 'EV7';
@@ -310,17 +312,29 @@ export async function POST(request: NextRequest) {
                 select: { StartTime: true, EndTime: true, BookingNo: true },
             });
 
+            let hasOverlap = false;
+            let overlapInfo = '';
             for (const existing of existingBayBookings) {
                 const existStart = timeToMinutes(existing.StartTime);
                 const existEnd = timeToMinutes(existing.EndTime);
 
                 // Check overlap: two intervals overlap if start1 < end2 AND start2 < end1
                 if (startMinutes < existEnd && existStart < endMinutes) {
+                    hasOverlap = true;
+                    overlapInfo = `${existing.BookingNo}: ${existing.StartTime}-${existing.EndTime}`;
+                    break;
+                }
+            }
+
+            if (hasOverlap) {
+                const canForceOverlap = session.user.role === 'SERVICE_CENTER' || session.user.role === 'ADMIN';
+                if (!canForceOverlap || !forceOverlap) {
                     return NextResponse.json({
                         success: false,
-                        error: `ช่วงเวลา ${StartTime}-${EndTime} ทับซ้อนกับการจองที่มีอยู่ (${existing.BookingNo}: ${existing.StartTime}-${existing.EndTime})`,
+                        error: `ช่วงเวลา ${StartTime}-${EndTime} ทับซ้อนกับการจองที่มีอยู่ (${overlapInfo})`,
                     }, { status: 409 });
                 }
+                // SERVICE_CENTER/ADMIN with forceOverlap=true → allow through
             }
 
             // Determine auto-approve: MILEAGE_CHECK auto-approves
@@ -388,13 +402,14 @@ export async function POST(request: NextRequest) {
             });
 
             // Log creation
+            const forceOverlapNote = hasOverlap && forceOverlap ? ` [⚠️ จองทับเวลาโดย ${session.user.name || session.user.email} — ทับซ้อนกับ ${overlapInfo}]` : '';
             await prisma.cM_BookingLog.create({
                 data: {
                     BookingID: booking.BookingID,
                     LogType: bookingStatus === 1 ? 'AUTO_APPROVED' : 'CREATED',
-                    Content: bookingStatus === 1
+                    Content: (bookingStatus === 1
                         ? `Bay booking created and auto-approved (${booking.ServiceType?.Name || 'N/A'}) on ${booking.Bay?.BayName || 'Bay'}`
-                        : `Bay booking created on ${booking.Bay?.BayName || 'Bay'}, pending approval`,
+                        : `Bay booking created on ${booking.Bay?.BayName || 'Bay'}, pending approval`) + forceOverlapNote,
                     CreateBy: session.user.name || session.user.email || 'System',
                 },
             });

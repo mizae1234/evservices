@@ -36,6 +36,7 @@ interface Props {
     branchId: string;
     date: string;
     startTime: string;
+    userRole?: string;
 }
 
 function timeToMinutes(t: string): number {
@@ -57,7 +58,7 @@ function formatDuration(min: number): string {
     return `${h} ชม. ${m} น.`;
 }
 
-export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bayName, branchId, date, startTime }: Props) {
+export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bayName, branchId, date, startTime, userRole }: Props) {
     // Master data
     const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
     const [flatRates, setFlatRates] = useState<FlatRate[]>([]);
@@ -170,7 +171,7 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
             }))
         : [];
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (forceOverlap = false) => {
         setError('');
 
         // Validation
@@ -202,6 +203,7 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
                     DurationMinutes: effectiveDuration,
                     Mileage: selectedMileage ? parseInt(selectedMileage) : 0,
                     LastMileage: 0,
+                    forceOverlap,
                 }),
             });
 
@@ -209,6 +211,16 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
             if (data.success) {
                 onSuccess();
                 onClose();
+            } else if (res.status === 409 && !forceOverlap && userRole && userRole !== 'CS') {
+                // Overlap detected — SERVICE_CENTER/ADMIN can force override
+                setIsSubmitting(false);
+                const confirmed = confirm(
+                    `⚠️ ${data.error}\n\nแน่ใจหรือไม่ที่จะเพิ่มการจองทับเวลานี้?`
+                );
+                if (confirmed) {
+                    handleSubmit(true); // retry with forceOverlap=true
+                }
+                return;
             } else {
                 setError(data.error || 'เกิดข้อผิดพลาด');
             }
@@ -425,7 +437,7 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
                             ยกเลิก
                         </Button>
                         <Button
-                            onClick={handleSubmit}
+                            onClick={() => handleSubmit()}
                             disabled={isSubmitting || !effectiveDuration || !customerName || !carRegister || !carModel}
                         >
                             {isSubmitting ? (

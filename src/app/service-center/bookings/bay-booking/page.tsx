@@ -432,6 +432,16 @@ function BayBookingPageInner() {
         if (!carRegister.trim()) { setError('กรุณาระบุทะเบียนรถ'); return; }
         if (!carModel.trim()) { setError('กรุณาระบุรุ่นรถ'); return; }
 
+        // For SERVICE_CENTER/ADMIN: confirm if overlapping
+        let shouldForceOverlap = false;
+        if (overlappingBooking && !isCS) {
+            const confirmed = confirm(
+                `⚠️ เวลาที่เลือก (${formStartTime} - ${endTime}) ทับซ้อนกับคิว ${overlappingBooking.BookingNo} (${overlappingBooking.StartTime}-${overlappingBooking.EndTime} น. ลูกค้า: ${overlappingBooking.CustomerName})\n\nแน่ใจหรือไม่ที่จะเพิ่มการจองทับเวลานี้?`
+            );
+            if (!confirmed) return;
+            shouldForceOverlap = true;
+        }
+
         setIsSubmitting(true);
         try {
             const res = await fetch('/api/bookings', {
@@ -459,6 +469,7 @@ function BayBookingPageInner() {
                         return fr?.Mileage?.Value || 0;
                     })(),
                     LastMileage: parseInt(lastMileage) || 0,
+                    forceOverlap: shouldForceOverlap,
                 }),
             });
             const data = await res.json();
@@ -922,9 +933,13 @@ function BayBookingPageInner() {
                                     <span className="text-red-600 font-bold text-sm">
                                         ❌ ไม่สามารถจองซ้ำในวันเดียวกันได้
                                     </span>
-                                ) : overlappingBooking ? (
+                                ) : overlappingBooking && isCS ? (
                                     <span className="text-red-600 font-bold text-sm">
                                         ❌ เวลาทับซ้อนกับการจองที่มีอยู่
+                                    </span>
+                                ) : overlappingBooking && !isCS ? (
+                                    <span className="text-amber-600 font-bold text-sm">
+                                        ⚠️ เวลาทับซ้อน — กดยืนยันเพื่อจองทับได้
                                     </span>
                                 ) : selectedST?.Code === 'MILEAGE_CHECK' ? (
                                     <span className="text-emerald-600 font-medium">✅ อนุมัติอัตโนมัติ</span>
@@ -934,11 +949,13 @@ function BayBookingPageInner() {
                             </div>
                             <Button
                                 onClick={handleSubmit}
-                                disabled={isSubmitting || !customerName || !carRegister || !carModel || (selectedST?.RequiresMileage && !lastMileage) || isSameDayDuplicate || !!overlappingBooking}
+                                disabled={isSubmitting || !customerName || !carRegister || !carModel || (selectedST?.RequiresMileage && !lastMileage) || isSameDayDuplicate || (!!overlappingBooking && isCS)}
                                 className="px-8"
                             >
                                 {isSubmitting ? (
                                     <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> กำลังจอง...</>
+                                ) : overlappingBooking && !isCS ? (
+                                    '⚠️ ยืนยันจอง (ทับเวลา)'
                                 ) : (
                                     'ยืนยันจอง'
                                 )}

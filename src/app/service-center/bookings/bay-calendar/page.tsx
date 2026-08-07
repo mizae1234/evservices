@@ -1124,6 +1124,7 @@ function BayCalendarPageInner() {
                     branchId={selectedBranch}
                     date={selectedDate}
                     startTime={bookingModal.startTime}
+                    userRole={session?.user?.role}
                 />
             )}
         </>
