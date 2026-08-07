@@ -167,6 +167,9 @@ export async function GET(request: NextRequest) {
                     DurationMinutes: b.DurationMinutes,
                     BayID: b.BayID,
                     BookingDate: b.BookingDate,
+                    Mileage: b.Mileage,
+                    LastMileage: b.LastMileage,
+                    ClaimDetail: b.ClaimDetail,
                 }))
                 .sort((a, b) => a.StartMinutes - b.StartMinutes);
 

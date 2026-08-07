@@ -33,6 +33,7 @@ interface BayBooking {
     BookingDate: string;
     Mileage?: number;
     LastMileage?: number;
+    ClaimDetail?: string | null;
 }
 
 interface AvailableSlot {
@@ -1069,7 +1070,24 @@ function BayCalendarPageInner() {
                                                         <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.ServiceType.Name}</p>
                                                     </div>
                                                 )}
+                                                {(selectedBooking.Mileage != null && selectedBooking.Mileage > 0) && (
+                                                    <div className="col-span-2">
+                                                        <span className="text-gray-700 font-bold text-xs">เช็คระยะ (กม.)</span>
+                                                        <p className="font-bold text-blue-700 text-base mt-0.5">
+                                                            {selectedBooking.Mileage.toLocaleString()} กม.
+                                                            {selectedBooking.LastMileage != null && selectedBooking.LastMileage > 0 && (
+                                                                <span className="text-gray-500 text-xs font-medium ml-2">(ล่าสุด {selectedBooking.LastMileage.toLocaleString()} กม.)</span>
+                                                            )}
+                                                        </p>
+                                                    </div>
+                                                )}
                                             </div>
+                                            {selectedBooking.ClaimDetail && (
+                                                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                                    <span className="text-blue-800 font-bold text-xs block mb-1">📝 รายละเอียด / หมายเหตุ</span>
+                                                    <p className="text-sm text-blue-900 font-medium whitespace-pre-wrap">{selectedBooking.ClaimDetail}</p>
+                                                </div>
+                                            )}
                                             {(selectedBooking.Status === 0 || selectedBooking.Status === 1) && (
                                                 <div className="pt-2">
                                                     <Button
@@ -1250,7 +1268,7 @@ function BayRow({
         laneMap.set(bk.BookingID, assignedLane);
     }
     const totalLanes = Math.max(1, laneEnds.length);
-    const LANE_HEIGHT = 50; // px per lane
+    const LANE_HEIGHT = 58; // px per lane
     const rowMinHeight = totalLanes * LANE_HEIGHT + 8; // 8px padding
 
     return (
@@ -1353,6 +1371,13 @@ function BayRow({
                                 <p className="text-[10px] text-gray-500 truncate">
                                     {isSystemBlock ? booking.CarModel : `${booking.CustomerName} • ${booking.CarRegister}`}
                                 </p>
+                                {!isSystemBlock && (booking.Mileage || booking.ClaimDetail) && (
+                                    <p className="text-[9px] text-gray-400 truncate">
+                                        {booking.Mileage ? `${booking.Mileage.toLocaleString()} กม.` : ''}
+                                        {booking.Mileage && booking.ClaimDetail ? ' • ' : ''}
+                                        {booking.ClaimDetail || ''}
+                                    </p>
+                                )}
                             </div>
                         </button>
                     );
