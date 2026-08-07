@@ -658,7 +658,7 @@ function BayCalendarPageInner() {
 
     return (
         <>
-            <Header title="Bay Calendar" subtitle="ตารางจอง Service Bay (แบบห้องประชุม)" />
+            <Header title="Bay Calendar" subtitle="ตารางจอง Service Bay" />
 
             <div className="p-4 lg:p-6 space-y-4">
                 {/* Controls Bar */}
@@ -711,6 +711,18 @@ function BayCalendarPageInner() {
                             {/* Quick Actions */}
                             {(session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') && (
                                 <div className="flex items-center gap-2">
+                                    <Button
+                                        size="sm"
+                                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                                        onClick={() => {
+                                            if (bays.length > 0) {
+                                                handleSlotClick(bays[0].BayID, bays[0].BayName, operatingHours.openTime);
+                                            }
+                                        }}
+                                    >
+                                        <Plus className="w-4 h-4 mr-1" />
+                                        เพิ่มคิว
+                                    </Button>
                                     <Button
                                         variant={isClosed ? "outline" : "danger"}
                                         size="sm"
