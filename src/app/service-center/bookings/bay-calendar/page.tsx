@@ -711,7 +711,7 @@ function BayCalendarPageInner() {
                             {/* Quick Actions */}
                             {(session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') && (
                                 <div className="flex items-center gap-2">
-                                    {session?.user?.role === 'SERVICE_CENTER' && (
+                                    {(session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') && (
                                         <Button
                                             size="sm"
                                             className="bg-blue-600 hover:bg-blue-700 text-white font-bold"
