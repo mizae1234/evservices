@@ -189,6 +189,9 @@ export async function GET(request: NextRequest) {
                 DurationMinutes: 60,
                 BayID: bay.BayID,
                 BookingDate: new Date(),
+                Mileage: 0,
+                LastMileage: 0,
+                ClaimDetail: null,
             });
 
             // Sort again after injection
