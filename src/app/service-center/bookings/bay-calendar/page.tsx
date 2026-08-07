@@ -12,6 +12,8 @@ import { LoadingPage } from '@/components/ui/Loading';
 import { ChevronLeft, ChevronRight, Calendar, Plus, Settings, Check, X as XIcon, Clock } from 'lucide-react';
 import BayBookingModal from '@/components/bookings/BayBookingModal';
 import { MileageWarning } from '@/components/bookings/MileageWarning';
+import { ActionConfirmModal, defaultActionModal } from '@/components/bookings/modals/ActionConfirmModal';
+import type { ActionModalState } from '@/components/bookings/modals/ActionConfirmModal';
 
 // --- Types ---
 interface BayBooking {
@@ -123,6 +125,22 @@ function BayCalendarPageInner() {
 
     // Booking modal state
     const [bookingModal, setBookingModal] = useState<{ bayId: number; bayName: string; startTime: string } | null>(null);
+
+    // Action modal state (replaces native alert/confirm/prompt)
+    const [actionModal, setActionModal] = useState<ActionModalState>(defaultActionModal);
+
+    const showSuccessModal = (title: string, message: string, onDismiss?: () => void) => {
+        setActionModal({ isOpen: true, title, message, type: 'success', reasonText: '', onConfirm: onDismiss });
+    };
+    const showErrorModal = (title: string, message: string) => {
+        setActionModal({ isOpen: true, title, message, type: 'error', reasonText: '' });
+    };
+    const showConfirmModal = (title: string, message: string, onConfirm: () => void) => {
+        setActionModal({ isOpen: true, title, message, type: 'confirm', reasonText: '', onConfirm });
+    };
+    const showPromptModal = (title: string, message: string, label: string, placeholder: string, onConfirm: (reason?: string) => void) => {
+        setActionModal({ isOpen: true, title, message, type: 'prompt', reasonText: '', promptLabel: label, promptPlaceholder: placeholder, onConfirm });
+    };
 
     // Load branches
     useEffect(() => {
@@ -375,37 +393,44 @@ function BayCalendarPageInner() {
                 setSelectedBooking(null);
                 loadBayAvailability();
             } else {
-                alert(data.error || 'เกิดข้อผิดพลาด');
+                showErrorModal('เกิดข้อผิดพลาด', data.error || 'ไม่สามารถอนุมัติได้');
             }
         } catch {
-            alert('เกิดข้อผิดพลาดในการอนุมัติ');
+            showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการอนุมัติ');
         } finally {
             setIsApproving(false);
         }
     };
 
-    const handleReject = async () => {
+    const handleReject = () => {
         if (!selectedBooking) return;
-        const reason = prompt('ระบุเหตุผลในการปฏิเสธ (ถ้ามี):');
-        setIsApproving(true);
-        try {
-            const res = await fetch(`/api/bookings/${selectedBooking.BookingID}/reject`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ reason }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setSelectedBooking(null);
-                loadBayAvailability();
-            } else {
-                alert(data.error || 'เกิดข้อผิดพลาด');
+        showPromptModal(
+            'ปฏิเสธการจอง',
+            `ต้องการปฏิเสธ ${selectedBooking.BookingNo} ใช่หรือไม่?`,
+            'เหตุผลในการปฏิเสธ (ถ้ามี)',
+            'ระบุเหตุผล...',
+            async (reason) => {
+                setIsApproving(true);
+                try {
+                    const res = await fetch(`/api/bookings/${selectedBooking.BookingID}/reject`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason }),
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        setSelectedBooking(null);
+                        loadBayAvailability();
+                    } else {
+                        showErrorModal('เกิดข้อผิดพลาด', data.error || 'ไม่สามารถปฏิเสธได้');
+                    }
+                } catch {
+                    showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการปฏิเสธ');
+                } finally {
+                    setIsApproving(false);
+                }
             }
-        } catch {
-            alert('เกิดข้อผิดพลาดในการปฏิเสธ');
-        } finally {
-            setIsApproving(false);
-        }
+        );
     };
 
     // Navigate to full-page booking form
@@ -485,114 +510,144 @@ function BayCalendarPageInner() {
         }
     };
 
-    const handleToggleBranchClosed = async () => {
+    const handleToggleBranchClosed = () => {
         if (!selectedBranch) return;
-        setIsTogglingClosed(true);
-        try {
-            if (isClosed) {
-                // Fetch holidays to find the HolidayID
-                const resList = await fetch(`/api/bookings/holidays?branchId=${selectedBranch}`);
-                const dataList = await resList.json();
-                if (dataList.success) {
-                    const targetDateStr = selectedDate;
-                    const foundHoliday = dataList.data.find((h: any) => h.HolidayDate.startsWith(targetDateStr));
-                    if (foundHoliday) {
-                        const resDel = await fetch(`/api/bookings/holidays?holidayId=${foundHoliday.HolidayID}`, {
-                            method: 'DELETE',
+        if (isClosed) {
+            // Open branch - directly execute
+            showConfirmModal('เปิดรับคิว', 'ต้องการเปิดรับคิวตามปกติใช่หรือไม่?', async () => {
+                setIsTogglingClosed(true);
+                try {
+                    const resList = await fetch(`/api/bookings/holidays?branchId=${selectedBranch}`);
+                    const dataList = await resList.json();
+                    if (dataList.success) {
+                        const targetDateStr = selectedDate;
+                        const foundHoliday = dataList.data.find((h: any) => h.HolidayDate.startsWith(targetDateStr));
+                        if (foundHoliday) {
+                            const resDel = await fetch(`/api/bookings/holidays?holidayId=${foundHoliday.HolidayID}`, {
+                                method: 'DELETE',
+                            });
+                            const dataDel = await resDel.json();
+                            if (dataDel.success) {
+                                showSuccessModal('สำเร็จ', 'เปิดรับคิวตามปกติเรียบร้อยแล้ว');
+                                loadBayAvailability();
+                            } else {
+                                showErrorModal('เกิดข้อผิดพลาด', dataDel.error || 'เกิดข้อผิดพลาดในการเปิดรับคิว');
+                            }
+                        } else {
+                            showErrorModal('ไม่สามารถดำเนินการได้', 'ไม่สามารถเปิดรับคิวในวันหยุดประจำสัปดาห์ได้ (กรุณาแก้ไขการตั้งค่าวันทำงานสาขา)');
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error toggling branch closed status:', err);
+                    showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการทำรายการ');
+                } finally {
+                    setIsTogglingClosed(false);
+                }
+            });
+        } else {
+            // Close branch - need reason
+            showPromptModal(
+                '🔒 ปิดรับคิววันนี้',
+                'กรุณาระบุเหตุผลในการปิดรับคิว',
+                'เหตุผล',
+                'เช่น พนักงานลา หรือ ปิดทำการชั่วคราว',
+                async (reason) => {
+                    setIsTogglingClosed(true);
+                    try {
+                        const finalReason = (reason || '').trim() || 'ปิดรับคิวประจำวัน';
+                        const resPost = await fetch('/api/bookings/holidays', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                branchId: selectedBranch,
+                                date: selectedDate,
+                                description: finalReason,
+                            }),
                         });
-                        const dataDel = await resDel.json();
-                        if (dataDel.success) {
-                            alert('เปิดรับคิวตามปกติเรียบร้อยแล้ว');
+                        const dataPost = await resPost.json();
+                        if (dataPost.success) {
+                            showSuccessModal('สำเร็จ', 'ปิดรับคิวสำหรับวันนี้เรียบร้อยแล้ว');
                             loadBayAvailability();
                         } else {
-                            alert(dataDel.error || 'เกิดข้อผิดพลาดในการเปิดรับคิว');
+                            showErrorModal('เกิดข้อผิดพลาด', dataPost.error || 'เกิดข้อผิดพลาดในการปิดรับคิว');
                         }
-                    } else {
-                        alert('ไม่สามารถเปิดรับคิวในวันหยุดประจำสัปดาห์ได้ (กรุณาแก้ไขการตั้งค่าวันทำงานสาขา)');
+                    } catch (err) {
+                        console.error('Error toggling branch closed status:', err);
+                        showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการทำรายการ');
+                    } finally {
+                        setIsTogglingClosed(false);
                     }
                 }
-            } else {
-                const reason = prompt('กรุณาระบุเหตุผลในการปิดรับคิววันนี้ (เช่น พนักงานลา หรือ ปิดทำการชั่วคราว):');
-                if (reason === null) {
-                    setIsTogglingClosed(false);
-                    return;
-                }
-                const finalReason = reason.trim() || 'ปิดรับคิวประจำวัน';
-                const resPost = await fetch('/api/bookings/holidays', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        branchId: selectedBranch,
-                        date: selectedDate,
-                        description: finalReason,
-                    }),
-                });
-                const dataPost = await resPost.json();
-                if (dataPost.success) {
-                    alert('ปิดรับคิวสำหรับวันนี้เรียบร้อยแล้ว');
-                    loadBayAvailability();
-                } else {
-                    alert(dataPost.error || 'เกิดข้อผิดพลาดในการปิดรับคิว');
-                }
-            }
-        } catch (err) {
-            console.error('Error toggling branch closed status:', err);
-            alert('เกิดข้อผิดพลาดในการทำรายการ');
-        } finally {
-            setIsTogglingClosed(false);
+            );
         }
     };
 
-    const handleToggleBayClose = async (bayId: number, bayName: string, isBlocked: boolean, blockBookingId?: number) => {
+    const handleToggleBayClose = (bayId: number, bayName: string, isBlocked: boolean, blockBookingId?: number) => {
         if (!selectedBranch) return;
-        try {
-            if (isBlocked && blockBookingId) {
-                if (!confirm(`ต้องการเปิดให้บริการ ${bayName} ตามปกติใช่หรือไม่?`)) return;
-                const res = await fetch(`/api/bookings/${blockBookingId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 2 }),
-                });
-                const data = await res.json();
-                if (data.success) {
-                    alert(`เปิดให้บริการ ${bayName} ตามปกติเรียบร้อยแล้ว`);
-                    loadBayAvailability();
-                } else {
-                    alert(data.error || 'เกิดข้อผิดพลาดในการเปิดช่องซ่อม');
+        if (isBlocked && blockBookingId) {
+            showConfirmModal(
+                'เปิดให้บริการ',
+                `ต้องการเปิดให้บริการ ${bayName} ตามปกติใช่หรือไม่?`,
+                async () => {
+                    try {
+                        const res = await fetch(`/api/bookings/${blockBookingId}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: 2 }),
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            showSuccessModal('สำเร็จ', `เปิดให้บริการ ${bayName} ตามปกติเรียบร้อยแล้ว`);
+                            loadBayAvailability();
+                        } else {
+                            showErrorModal('เกิดข้อผิดพลาด', data.error || 'เกิดข้อผิดพลาดในการเปิดช่องซ่อม');
+                        }
+                    } catch (err) {
+                        console.error('Error toggling bay close status:', err);
+                        showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการทำรายการ');
+                    }
                 }
-            } else {
-                const reason = prompt(`กรุณาระบุสาเหตุที่ปิด ${bayName} วันนี้ (เช่น ช่างลา, ปรับปรุงเครื่องมือ):`);
-                if (reason === null) return;
-                const finalReason = reason.trim() || 'งดให้บริการช่องซ่อมชั่วคราว';
-                const res = await fetch('/api/bookings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        BookingDate: selectedDate,
-                        StartTime: '08:00',
-                        EndTime: '17:30',
-                        CustomerName: '[ปิดช่องซ่อมชั่วคราว]',
-                        CarRegister: 'BLOCK',
-                        CarModel: finalReason,
-                        BranchID: selectedBranch,
-                        BayID: bayId,
-                        ServiceTypeID: null,
-                        DurationMinutes: 570,
-                        LastMileage: 0,
-                        ClaimDetail: finalReason,
-                    }),
-                });
-                const data = await res.json();
-                if (data.success) {
-                    alert(`ปิดบริการ ${bayName} เรียบร้อยแล้ว`);
-                    loadBayAvailability();
-                } else {
-                    alert(data.error || 'เกิดข้อผิดพลาดในการปิดช่องซ่อม');
+            );
+        } else {
+            showPromptModal(
+                `🔒 ปิด ${bayName} วันนี้`,
+                `กรุณาระบุสาเหตุที่ปิด ${bayName}`,
+                'สาเหตุ',
+                'เช่น ช่างลา, ปรับปรุงเครื่องมือ',
+                async (reason) => {
+                    try {
+                        const finalReason = (reason || '').trim() || 'งดให้บริการช่องซ่อมชั่วคราว';
+                        const res = await fetch('/api/bookings', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                BookingDate: selectedDate,
+                                StartTime: '08:00',
+                                EndTime: '17:30',
+                                CustomerName: '[ปิดช่องซ่อมชั่วคราว]',
+                                CarRegister: 'BLOCK',
+                                CarModel: finalReason,
+                                BranchID: selectedBranch,
+                                BayID: bayId,
+                                ServiceTypeID: null,
+                                DurationMinutes: 570,
+                                LastMileage: 0,
+                                ClaimDetail: finalReason,
+                            }),
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            showSuccessModal('สำเร็จ', `ปิดบริการ ${bayName} เรียบร้อยแล้ว`);
+                            loadBayAvailability();
+                        } else {
+                            showErrorModal('เกิดข้อผิดพลาด', data.error || 'เกิดข้อผิดพลาดในการปิดช่องซ่อม');
+                        }
+                    } catch (err) {
+                        console.error('Error toggling bay close status:', err);
+                        showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในการทำรายการ');
+                    }
                 }
-            }
-        } catch (err) {
-            console.error('Error toggling bay close status:', err);
-            alert('เกิดข้อผิดพลาดในการทำรายการ');
+            );
         }
     };
 
@@ -882,8 +937,10 @@ function BayCalendarPageInner() {
                                                         className="border border-purple-300 rounded-lg px-3 py-1.5 text-sm font-bold text-purple-900 bg-white w-full focus:ring-2 focus:ring-purple-500"
                                                     />
                                                 </div>
-                                                <div className="grid grid-cols-4 gap-1.5 pt-1">
+                                                <div className="grid grid-cols-6 gap-1.5 pt-1">
                                                     {[
+                                                        { label: '-1h', mins: -60 },
+                                                        { label: '-30m', mins: -30 },
                                                         { label: '+30m', mins: 30 },
                                                         { label: '+1h', mins: 60 },
                                                         { label: '+1.5h', mins: 90 },
@@ -895,13 +952,19 @@ function BayCalendarPageInner() {
                                                             onClick={() => {
                                                                 const currentEnd = customEndTime || selectedBooking?.EndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, selectedBooking?.DurationMinutes || 0);
                                                                 const [h, m] = currentEnd.split(':').map(Number);
-                                                                const d = new Date();
-                                                                d.setHours(h, m + btn.mins, 0, 0);
-                                                                const newH = String(d.getHours()).padStart(2, '0');
-                                                                const newM = String(d.getMinutes()).padStart(2, '0');
+                                                                const totalMins = h * 60 + m + btn.mins;
+                                                                const startMins = timeToMinutes(`${rescheduleHour}:${rescheduleMin}`);
+                                                                // Prevent end time from going before start time + 30 min
+                                                                const clampedMins = Math.max(totalMins, startMins + 30);
+                                                                const newH = String(Math.floor(clampedMins / 60)).padStart(2, '0');
+                                                                const newM = String(clampedMins % 60).padStart(2, '0');
                                                                 setCustomEndTime(`${newH}:${newM}`);
                                                             }}
-                                                            className="py-1 px-1 bg-white hover:bg-purple-100 border border-purple-300 rounded text-xs font-bold text-purple-800 transition-colors"
+                                                            className={`py-1 px-1 bg-white border rounded text-xs font-bold transition-colors ${
+                                                                btn.mins < 0
+                                                                    ? 'hover:bg-red-100 border-red-300 text-red-700'
+                                                                    : 'hover:bg-purple-100 border-purple-300 text-purple-800'
+                                                            }`}
                                                         >
                                                             {btn.label}
                                                         </button>
@@ -1021,7 +1084,7 @@ function BayCalendarPageInner() {
                                                         }}
                                                     >
                                                         <Clock className="w-4 h-4 mr-1.5" />
-                                                        เลื่อนคิวนัดหมาย
+                                                        เลื่อนคิวนัดหมาย/ปรับเพิ่มเวลา
                                                     </Button>
                                                 </div>
                                             )}
@@ -1068,26 +1131,31 @@ function BayCalendarPageInner() {
                                         variant="outline"
                                         size="sm"
                                         className="text-emerald-600 border-emerald-250 hover:bg-emerald-50 font-bold"
-                                        onClick={async () => {
-                                            if (!confirm(`ต้องการเปิดให้บริการ ${selectedBayName} ตามปกติใช่หรือไม่?`)) return;
-                                            try {
-                                                const res = await fetch(`/api/bookings/${selectedBooking.BookingID}`, {
-                                                    method: 'PUT',
-                                                    headers: { 'Content-Type': 'application/json' },
-                                                    body: JSON.stringify({ status: 2 }),
-                                                });
-                                                const data = await res.json();
-                                                if (data.success) {
-                                                    alert(`เปิดให้บริการ ${selectedBayName} ตามปกติเรียบร้อยแล้ว`);
-                                                    setSelectedBooking(null);
-                                                    loadBayAvailability();
-                                                } else {
-                                                    alert(data.error || 'เกิดข้อผิดพลาดในการเปิดช่องซ่อม');
+                                        onClick={() => {
+                                            showConfirmModal(
+                                                'เปิดให้บริการ',
+                                                `ต้องการเปิดให้บริการ ${selectedBayName} ตามปกติใช่หรือไม่?`,
+                                                async () => {
+                                                    try {
+                                                        const res = await fetch(`/api/bookings/${selectedBooking.BookingID}`, {
+                                                            method: 'PUT',
+                                                            headers: { 'Content-Type': 'application/json' },
+                                                            body: JSON.stringify({ status: 2 }),
+                                                        });
+                                                        const data = await res.json();
+                                                        if (data.success) {
+                                                            showSuccessModal('สำเร็จ', `เปิดให้บริการ ${selectedBayName} ตามปกติเรียบร้อยแล้ว`);
+                                                            setSelectedBooking(null);
+                                                            loadBayAvailability();
+                                                        } else {
+                                                            showErrorModal('เกิดข้อผิดพลาด', data.error || 'เกิดข้อผิดพลาดในการเปิดช่องซ่อม');
+                                                        }
+                                                    } catch (err) {
+                                                        console.error('Error opening bay:', err);
+                                                        showErrorModal('เกิดข้อผิดพลาด', 'เกิดข้อผิดพลาดในระบบ');
+                                                    }
                                                 }
-                                            } catch (err) {
-                                                console.error('Error opening bay:', err);
-                                                alert('เกิดข้อผิดพลาด');
-                                            }
+                                            );
                                         }}
                                     >
                                         🔓 เปิดให้บริการตามปกติ
@@ -1127,6 +1195,9 @@ function BayCalendarPageInner() {
                     userRole={session?.user?.role}
                 />
             )}
+
+            {/* Action Confirm/Prompt/Error Modal */}
+            <ActionConfirmModal state={actionModal} onStateChange={setActionModal} />
         </>
     );
 }
@@ -1159,6 +1230,29 @@ function BayRow({
     const blockBooking = bay.Bookings.find(b => b.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' && b.CarRegister === 'BLOCK');
     const isBlocked = !!blockBooking;
 
+    // Compute lanes for overlapping bookings (greedy algorithm)
+    const laneMap = new Map<number, number>();
+    const sortedBookings = [...bay.Bookings].sort((a, b) => a.StartMinutes - b.StartMinutes);
+    const laneEnds: number[] = [];
+    for (const bk of sortedBookings) {
+        let assignedLane = -1;
+        for (let i = 0; i < laneEnds.length; i++) {
+            if (bk.StartMinutes >= laneEnds[i]) {
+                laneEnds[i] = bk.EndMinutes;
+                assignedLane = i;
+                break;
+            }
+        }
+        if (assignedLane === -1) {
+            laneEnds.push(bk.EndMinutes);
+            assignedLane = laneEnds.length - 1;
+        }
+        laneMap.set(bk.BookingID, assignedLane);
+    }
+    const totalLanes = Math.max(1, laneEnds.length);
+    const LANE_HEIGHT = 50; // px per lane
+    const rowMinHeight = totalLanes * LANE_HEIGHT + 8; // 8px padding
+
     return (
         <div className="flex border-b border-gray-100 hover:bg-gray-50/50 transition-colors group">
             {/* Bay Label */}
@@ -1187,7 +1281,7 @@ function BayRow({
             {/* Timeline */}
             <div 
                 className="relative flex-1" 
-                style={{ minHeight: 60 }}
+                style={{ minHeight: rowMinHeight }}
                 onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
@@ -1238,13 +1332,17 @@ function BayRow({
                         : (STATUS_CONFIG[booking.Status] || STATUS_CONFIG[0]);
                     const canDrag = !isSystemBlock && (booking.Status === 0 || booking.Status === 1);
 
+                    const lane = laneMap.get(booking.BookingID) || 0;
+                    const laneTop = 4 + lane * LANE_HEIGHT;
+                    const laneHeight = LANE_HEIGHT - 6;
+
                     return (
                         <button
                             key={booking.BookingID}
                             draggable={canDrag}
                             onDragStart={(e) => onBookingDragStart(e, booking)}
-                            className={`absolute top-1 bottom-1 ${config.bgColor} border ${config.borderColor} rounded-md px-2 flex items-center gap-1 overflow-hidden cursor-pointer hover:shadow-md transition-shadow text-left select-none ${canDrag ? 'active:cursor-grabbing' : 'cursor-default'}`}
-                            style={{ left, width: Math.max(width, 40) }}
+                            className={`absolute ${config.bgColor} border ${config.borderColor} rounded-md px-2 flex items-center gap-1 overflow-hidden cursor-pointer hover:shadow-md transition-shadow text-left select-none ${canDrag ? 'active:cursor-grabbing' : 'cursor-default'}`}
+                            style={{ left, width: Math.max(width, 40), top: laneTop, height: laneHeight }}
                             onClick={() => onBookingClick(booking)}
                             title={isSystemBlock ? `ช่องซ่อมนี้ปิดบริการชั่วคราว: ${booking.CarModel}` : `${booking.BookingNo} | ${booking.CustomerName} | ${booking.StartTime}-${booking.EndTime}${canDrag ? ' (ลากขยับเพื่อเลื่อนคิว)' : ''}`}
                         >
