@@ -170,6 +170,7 @@ export async function GET(request: NextRequest) {
                     Mileage: b.Mileage,
                     LastMileage: b.LastMileage,
                     ClaimDetail: b.ClaimDetail,
+                    CustomerPhone: b.CustomerPhone,
                 }))
                 .sort((a, b) => a.StartMinutes - b.StartMinutes);
 
@@ -192,6 +193,7 @@ export async function GET(request: NextRequest) {
                 Mileage: 0,
                 LastMileage: 0,
                 ClaimDetail: null,
+                CustomerPhone: null,
             });
 
             // Sort again after injection

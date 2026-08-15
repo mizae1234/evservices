@@ -34,6 +34,7 @@ interface BayBooking {
     Mileage?: number;
     LastMileage?: number;
     ClaimDetail?: string | null;
+    CustomerPhone?: string | null;
 }
 
 interface AvailableSlot {
@@ -1073,6 +1074,20 @@ function BayCalendarPageInner() {
                                                 <div>
                                                     <span className="text-gray-700 font-bold text-xs">ทะเบียน</span>
                                                     <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.CarRegister}</p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-700 font-bold text-xs">เบอร์โทร</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">
+                                                        {selectedBooking.CustomerPhone ? (
+                                                            <a href={`tel:${selectedBooking.CustomerPhone}`} className="text-blue-600 hover:underline">{selectedBooking.CustomerPhone}</a>
+                                                        ) : (
+                                                            <span className="text-gray-400">-</span>
+                                                        )}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-gray-700 font-bold text-xs">วันที่จอง</span>
+                                                    <p className="font-bold text-gray-900 text-base mt-0.5">{selectedBooking.BookingDate ? formatThaiDate(typeof selectedBooking.BookingDate === 'string' ? selectedBooking.BookingDate.split('T')[0] : new Date(selectedBooking.BookingDate).toISOString().split('T')[0]) : '-'}</p>
                                                 </div>
                                                 <div className="col-span-2">
                                                     <span className="text-gray-700 font-bold text-xs">รุ่นรถ</span>
