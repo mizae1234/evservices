@@ -6,6 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { CLAIM_STATUS } from '@/types';
+import { isCSRole } from '@/lib/permissions';
 
 interface RouteParams {
     params: Promise<{ id: string }>;
@@ -148,7 +149,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
                 LastMileage: parseInt(LastMileage) || 0,
                 ServiceDate: ServiceDate ? new Date(ServiceDate) : undefined,
                 Status: newStatus,
-                BranchID: ((session.user.role === 'ADMIN' || session.user.role === 'CS') && body.BranchID) ? parseInt(body.BranchID) : undefined,
+                BranchID: ((session.user.role === 'ADMIN' || isCSRole(session.user.role)) && body.BranchID) ? parseInt(body.BranchID) : undefined,
                 UpdateBy: user!.UserID,
             },
         });

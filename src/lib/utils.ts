@@ -11,6 +11,20 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * Get current date in Bangkok (UTC+7) timezone formatted as YYYY-MM-DD
+ */
+export function getBangkokDateString(date: Date | string = new Date()): string {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Bangkok',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    });
+    return formatter.format(d);
+}
+
+/**
  * Format number as Thai Baht currency
  */
 export function formatCurrency(amount: number): string {

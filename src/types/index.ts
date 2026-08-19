@@ -4,7 +4,7 @@
 // User & Auth Types
 // ==========================================
 
-export type UserRole = 'ADMIN' | 'SERVICE_CENTER' | 'CS';
+export type UserRole = 'ADMIN' | 'SERVICE_CENTER' | 'CS' | 'CS_LINEMAN' | string;
 
 export interface User {
     UserID: number;
@@ -17,6 +17,7 @@ export interface User {
     Role: {
         RoleCode: string;
         RoleName: string;
+        AllowedBookingType?: string | null;
     };
     Branch?: {
         BranchID: number;
@@ -29,6 +30,8 @@ export interface SessionUser {
     email: string;
     name: string;
     role: UserRole;
+    roleName?: string;
+    allowedBookingType?: string | null;
     branchId?: number;
     branchName?: string;
 }

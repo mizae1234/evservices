@@ -139,6 +139,8 @@ const menuItems: MenuItem[] = [
     },
 ];
 
+import { isCSRole } from '@/lib/permissions';
+
 export function Sidebar() {
     const pathname = usePathname();
     const { data: session } = useSession();
@@ -146,7 +148,11 @@ export function Sidebar() {
 
     const userRole = session?.user?.role || 'SERVICE_CENTER';
 
-    const filteredItems = menuItems.filter((item) => item.roles.includes(userRole));
+    const filteredItems = menuItems.filter((item) => {
+        if (item.roles.includes(userRole)) return true;
+        if (isCSRole(userRole) && item.roles.includes('CS')) return true;
+        return false;
+    });
 
     // Close sidebar on route change (mobile)
     useEffect(() => {

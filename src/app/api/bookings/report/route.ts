@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { getAllowedBookingType } from '@/lib/permissions';
 
 export async function GET(request: NextRequest) {
     try {
@@ -30,6 +31,12 @@ export async function GET(request: NextRequest) {
         const whereClause: any = {
             IsActive: true,
         };
+
+        // Allowed booking type scoping (e.g. CS_LINEMAN sees only LINEMAN)
+        const allowedType = getAllowedBookingType(session.user);
+        if (allowedType) {
+            whereClause.BookingType = allowedType;
+        }
 
         if (targetBranchId) {
             whereClause.BranchID = targetBranchId;

@@ -14,10 +14,24 @@ export const formatBookingDate = (d: Date) => {
 
 export async function notifyCSUsers(bookingId: number, type: string, title: string, message: string, excludeUserId?: number) {
     try {
+        const booking = await prisma.cM_Booking.findUnique({
+            where: { BookingID: bookingId },
+            select: { BookingType: true },
+        });
+
+        const bType = booking?.BookingType || 'EV7';
+
+        // Notify general CS (AllowedBookingType is null) or specific CS for this booking type
         const csUsers = await prisma.cM_User.findMany({
             where: {
                 IsActive: true,
-                Role: { RoleCode: 'CS' },
+                Role: {
+                    OR: [
+                        { RoleCode: 'CS' },
+                        { AllowedBookingType: null },
+                        { AllowedBookingType: bType },
+                    ],
+                },
                 ...(excludeUserId ? { UserID: { not: excludeUserId } } : {})
             },
             select: { UserID: true },

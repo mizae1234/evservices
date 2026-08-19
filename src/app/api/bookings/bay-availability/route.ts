@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 
 // Helper: Convert "HH:MM" string to minutes since midnight
 function timeToMinutes(time: string): number {
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
         });
 
         // Filter out offline bays for CS role (Call Center / Online Booking)
-        if (session.user.role === 'CS') {
+        if (isCSRole(session.user.role)) {
             bays = bays.filter(b => b.IsOnline);
         }
 
@@ -148,30 +149,61 @@ export async function GET(request: NextRequest) {
         const openMinutes = timeToMinutes(openTime);
         const closeMinutes = timeToMinutes(closeTime);
 
+        // Check if user is scoped to a specific booking type
+        const allowedType = getAllowedBookingType(session.user);
+
         // 6. Build bay availability data
         const bayAvailability = bays.map((bay) => {
             const bayBookings = bookings
                 .filter((b) => b.BayID === bay.BayID)
-                .map((b) => ({
-                    BookingID: b.BookingID,
-                    BookingNo: b.BookingNo,
-                    StartTime: b.StartTime,
-                    EndTime: b.EndTime,
-                    StartMinutes: timeToMinutes(b.StartTime),
-                    EndMinutes: timeToMinutes(b.EndTime),
-                    CustomerName: b.CustomerName,
-                    CarRegister: b.CarRegister,
-                    CarModel: b.CarModel,
-                    ServiceType: b.ServiceType,
-                    Status: b.Status,
-                    DurationMinutes: b.DurationMinutes,
-                    BayID: b.BayID,
-                    BookingDate: b.BookingDate,
-                    Mileage: b.Mileage,
-                    LastMileage: b.LastMileage,
-                    ClaimDetail: b.ClaimDetail,
-                    CustomerPhone: b.CustomerPhone,
-                }))
+                .map((b) => {
+                    // Mask bookings of other types for partner CS
+                    if (allowedType && b.BookingType !== allowedType) {
+                        return {
+                            BookingID: b.BookingID,
+                            BookingNo: '***',
+                            StartTime: b.StartTime,
+                            EndTime: b.EndTime,
+                            StartMinutes: timeToMinutes(b.StartTime),
+                            EndMinutes: timeToMinutes(b.EndTime),
+                            CustomerName: 'จองแล้ว (คิวอื่น)',
+                            CarRegister: '***',
+                            CarModel: '-',
+                            ServiceType: null,
+                            Status: b.Status,
+                            DurationMinutes: b.DurationMinutes,
+                            BayID: b.BayID,
+                            BookingDate: b.BookingDate,
+                            Mileage: 0,
+                            LastMileage: 0,
+                            ClaimDetail: '',
+                            CustomerPhone: '',
+                            isMasked: true,
+                        };
+                    }
+
+                    return {
+                        BookingID: b.BookingID,
+                        BookingNo: b.BookingNo,
+                        StartTime: b.StartTime,
+                        EndTime: b.EndTime,
+                        StartMinutes: timeToMinutes(b.StartTime),
+                        EndMinutes: timeToMinutes(b.EndTime),
+                        CustomerName: b.CustomerName,
+                        CarRegister: b.CarRegister,
+                        CarModel: b.CarModel,
+                        ServiceType: b.ServiceType,
+                        Status: b.Status,
+                        DurationMinutes: b.DurationMinutes,
+                        BayID: b.BayID,
+                        BookingDate: b.BookingDate,
+                        Mileage: b.Mileage,
+                        LastMileage: b.LastMileage,
+                        ClaimDetail: b.ClaimDetail,
+                        CustomerPhone: b.CustomerPhone,
+                        isMasked: false,
+                    };
+                })
                 .sort((a, b) => a.StartMinutes - b.StartMinutes);
 
             // Inject lunch break block (12:00 - 13:00)
@@ -194,6 +226,7 @@ export async function GET(request: NextRequest) {
                 LastMileage: 0,
                 ClaimDetail: null,
                 CustomerPhone: null,
+                isMasked: false,
             });
 
             // Sort again after injection

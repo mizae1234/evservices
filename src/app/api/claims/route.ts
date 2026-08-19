@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { generateClaimNo } from '@/lib/utils';
 import { CLAIM_STATUS } from '@/types';
+import { isCSRole } from '@/lib/permissions';
 
 // GET /api/claims - List claims with filtering
 export async function GET(request: NextRequest) {
@@ -201,7 +202,7 @@ export async function POST(request: NextRequest) {
                 LastMileage: parseInt(LastMileage) || 0,
                 ServiceDate: ServiceDate ? new Date(ServiceDate) : new Date(),
                 Status: submitNow ? CLAIM_STATUS.PENDING : CLAIM_STATUS.DRAFT,
-                BranchID: ((session.user.role === 'ADMIN' || session.user.role === 'CS') && body.BranchID) ? parseInt(body.BranchID) : (user?.BranchID || 1),
+                BranchID: ((session.user.role === 'ADMIN' || isCSRole(session.user.role)) && body.BranchID) ? parseInt(body.BranchID) : (user?.BranchID || 1),
                 CreateBy: user!.UserID,
             },
         });

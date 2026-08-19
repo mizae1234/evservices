@@ -6,6 +6,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { notifyCSUsers, NOTI_TYPES, formatBookingDate } from '@/lib/notifications';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
+import { getBangkokDateString } from '@/lib/utils';
 
 export async function GET(
     request: NextRequest,
@@ -46,6 +48,12 @@ export async function GET(
 
         if (!booking) {
             return NextResponse.json({ success: false, error: 'Booking not found' }, { status: 404 });
+        }
+
+        // Allowed booking type authorization check
+        const allowedType = getAllowedBookingType(session.user);
+        if (allowedType && booking.BookingType !== allowedType) {
+            return NextResponse.json({ success: false, error: 'ไม่มีสิทธิ์เข้าถึงข้อมูลการจองนี้' }, { status: 403 });
         }
 
         // Branch authorization check
@@ -116,13 +124,19 @@ export async function PUT(
             return NextResponse.json({ success: false, error: 'Booking not found' }, { status: 404 });
         }
 
+        // Allowed booking type authorization check
+        const allowedType = getAllowedBookingType(session.user);
+        if (allowedType && booking.BookingType !== allowedType) {
+            return NextResponse.json({ success: false, error: 'ไม่มีสิทธิ์แก้ไขข้อมูลการจองนี้' }, { status: 403 });
+        }
+
         // Branch authorization check
         if (session.user.role === 'SERVICE_CENTER' && session.user.branchId && booking.BranchID !== session.user.branchId) {
             return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 403 });
         }
 
         // CS block booking permission check
-        if (session.user.role === 'CS' && (booking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' || CustomerName === '[ปิดช่องซ่อมชั่วคราว]')) {
+        if (isCSRole(session.user.role) && (booking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' || CustomerName === '[ปิดช่องซ่อมชั่วคราว]')) {
             return NextResponse.json({ success: false, error: 'CS ไม่ได้รับอนุญาตให้จัดการการปิดช่องซ่อม' }, { status: 403 });
         }
 
@@ -202,7 +216,7 @@ export async function PUT(
             }
 
             // Check if date is in the past
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = getBangkokDateString();
             if (BookingDate < todayStr) {
                 return NextResponse.json({ success: false, error: 'ไม่สามารถเลือกจองคิวย้อนหลังได้' }, { status: 400 });
             }

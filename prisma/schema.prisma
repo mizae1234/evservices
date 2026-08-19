@@ -8,14 +8,15 @@ datasource db {
 }
 
 model CM_Role {
-  RoleID      Int       @id @default(autoincrement())
-  RoleName    String    @db.NVarChar(50)
-  RoleCode    String    @unique @db.NVarChar(20)
-  Description String?   @db.NVarChar(200)
-  IsActive    Boolean   @default(true)
-  CreateDate  DateTime  @default(now())
-  UpdateDate  DateTime  @updatedAt
-  Users       CM_User[]
+  RoleID             Int       @id @default(autoincrement())
+  RoleName           String    @db.NVarChar(50)
+  RoleCode           String    @unique @db.NVarChar(20)
+  AllowedBookingType String?   @db.NVarChar(20)
+  Description        String?   @db.NVarChar(200)
+  IsActive           Boolean   @default(true)
+  CreateDate         DateTime  @default(now())
+  UpdateDate         DateTime  @updatedAt
+  Users              CM_User[]
 
   @@map("CM_Role")
 }

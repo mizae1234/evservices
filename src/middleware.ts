@@ -5,6 +5,8 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
+import { isCSRole } from '@/lib/permissions';
+
 export async function middleware(request: NextRequest) {
     const token = await getToken({
         req: request,
@@ -23,7 +25,7 @@ export async function middleware(request: NextRequest) {
         if (token && pathname === '/auth/login') {
             const redirectUrl = token.role === 'ADMIN' 
                 ? '/admin/overview' 
-                : (token.role === 'CS' ? '/service-center/bookings' : '/service-center/dashboard');
+                : (isCSRole(token.role as string) ? '/service-center/bookings' : '/service-center/dashboard');
             return NextResponse.redirect(new URL(redirectUrl, request.url));
         }
         return NextResponse.next();
@@ -36,6 +38,8 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(loginUrl);
     }
 
+    const isUserCS = isCSRole(token.role as string);
+
     // Role-based route protection
     if (pathname.startsWith('/admin')) {
         // Admin routes require ADMIN role
@@ -45,12 +49,12 @@ export async function middleware(request: NextRequest) {
     }
 
     if (pathname.startsWith('/service-center')) {
-        // Service center routes allow SERVICE_CENTER, ADMIN, and CS roles
-        if (token.role !== 'SERVICE_CENTER' && token.role !== 'ADMIN' && token.role !== 'CS') {
+        // Service center routes allow SERVICE_CENTER, ADMIN, and all CS roles
+        if (token.role !== 'SERVICE_CENTER' && token.role !== 'ADMIN' && !isUserCS) {
             return NextResponse.redirect(new URL('/auth/login', request.url));
         }
-        // Redirect CS away from the general service dashboard to bookings
-        if (token.role === 'CS' && (pathname === '/service-center/dashboard' || pathname === '/service-center')) {
+        // Redirect CS away from the general service dashboard or claims to bookings
+        if (isUserCS && (pathname === '/service-center/dashboard' || pathname === '/service-center' || pathname.startsWith('/service-center/claims'))) {
             return NextResponse.redirect(new URL('/service-center/bookings', request.url));
         }
     }
@@ -59,7 +63,7 @@ export async function middleware(request: NextRequest) {
     if (pathname === '/') {
         const redirectUrl = token.role === 'ADMIN' 
             ? '/admin/overview' 
-            : (token.role === 'CS' ? '/service-center/bookings' : '/service-center/dashboard');
+            : (isUserCS ? '/service-center/bookings' : '/service-center/dashboard');
         return NextResponse.redirect(new URL(redirectUrl, request.url));
     }
 

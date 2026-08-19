@@ -6,6 +6,8 @@ import { Header } from '@/components/layouts/Header';
 import { Button } from '@/components/ui/Button';
 import { Search, Download, Filter, Loader2, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { isCSRole } from '@/lib/permissions';
+import { getBangkokDateString } from '@/lib/utils';
 
 interface BookingReport {
     BookingID: number;
@@ -30,31 +32,33 @@ interface BookingReport {
 export default function BookingReportPage() {
     const { data: session } = useSession();
     const isAdmin = session?.user?.role === 'ADMIN';
+    const isCS = isCSRole(session?.user?.role);
+    const canSelectBranch = isAdmin || isCS;
 
     const [branches, setBranches] = useState<any[]>([]);
     const [data, setData] = useState<BookingReport[]>([]);
     const [isLoading, setIsLoading] = useState(false);
 
     // Filters
-    const [filterBranch, setFilterBranch] = useState(isAdmin ? 'all' : session?.user?.branchId || '');
+    const [filterBranch, setFilterBranch] = useState(canSelectBranch ? 'all' : session?.user?.branchId || '');
     const [filterDateFrom, setFilterDateFrom] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() - 7); // 7 days ago
-        return d.toISOString().split('T')[0];
+        return getBangkokDateString(d);
     });
     const [filterDateTo, setFilterDateTo] = useState(() => {
         const d = new Date();
         d.setDate(d.getDate() + 30); // 30 days from today
-        return d.toISOString().split('T')[0];
+        return getBangkokDateString(d);
     });
     const [searchQuery, setSearchQuery] = useState('');
     const [filterStatus, setFilterStatus] = useState('all');
 
     useEffect(() => {
-        if (isAdmin) {
+        if (canSelectBranch) {
             fetchBranches();
         }
-    }, [isAdmin]);
+    }, [canSelectBranch]);
 
     const fetchBranches = async () => {
         try {
@@ -201,8 +205,8 @@ export default function BookingReportPage() {
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                            {/* Branch Filter - Only for admin */}
-                            {isAdmin && (
+                            {/* Branch Filter - For Admin and all CS roles */}
+                            {canSelectBranch && (
                                 <div>
                                     <label className="block text-xs font-medium text-gray-700 mb-1">สาขา</label>
                                     <select

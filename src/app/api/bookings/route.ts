@@ -8,6 +8,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { notifyBranchAndAdminUsers, NOTI_TYPES } from '@/lib/notifications';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
+import { getBangkokDateString } from '@/lib/utils';
 
 const DEFAULT_SLOTS = [
     { StartTime: '08:30', EndTime: '10:30', MaxQueue: 2 },
@@ -34,6 +36,12 @@ export async function GET(request: NextRequest) {
 
         const where: Record<string, unknown> = {};
 
+        // Allowed booking type scoping (e.g. CS_LINEMAN sees only LINEMAN)
+        const allowedType = getAllowedBookingType(session.user);
+        if (allowedType) {
+            where.BookingType = allowedType;
+        }
+
         // Branch filtering based on user role
         if (session.user.role === 'SERVICE_CENTER') {
             if (session.user.branchId) {
@@ -57,7 +65,7 @@ export async function GET(request: NextRequest) {
 
         // Date filtering
         if (isOverdue) {
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = getBangkokDateString();
             const [y, m, d] = todayStr.split('-').map(Number);
             const startOfToday = new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0));
             where.BookingDate = {
@@ -97,7 +105,11 @@ export async function GET(request: NextRequest) {
                     orderBy: { CreateDate: 'desc' },
                 },
             },
-            orderBy: { BookingDate: 'desc' },
+            orderBy: [
+                { BookingDate: 'desc' },
+                { StartTime: 'asc' },
+                { BookingID: 'desc' },
+            ],
             skip: (page - 1) * pageSize,
             take: pageSize,
         });
@@ -152,10 +164,16 @@ export async function POST(request: NextRequest) {
             forceOverlap,
         } = body;
 
-        const bookingType = BookingType === 'RETAIL' ? 'RETAIL' : BookingType === 'LINEMAN' ? 'LINEMAN' : 'EV7';
+        let bookingType = BookingType === 'RETAIL' ? 'RETAIL' : BookingType === 'LINEMAN' ? 'LINEMAN' : 'EV7';
+        
+        // If user is scoped to a specific booking type (e.g. CS_LINEMAN -> LINEMAN), enforce it
+        const allowedType = getAllowedBookingType(session.user);
+        if (allowedType) {
+            bookingType = allowedType;
+        }
 
         // Check if CS tries to create a block booking
-        if (CustomerName === '[ปิดช่องซ่อมชั่วคราว]' && session.user.role === 'CS') {
+        if (CustomerName === '[ปิดช่องซ่อมชั่วคราว]' && isCSRole(session.user.role)) {
             return NextResponse.json({ success: false, error: 'CS ไม่ได้รับอนุญาตให้ปิดช่องซ่อม' }, { status: 403 });
         }
 
@@ -165,7 +183,7 @@ export async function POST(request: NextRequest) {
         }
 
         // Check if date is in the past
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getBangkokDateString();
         if (BookingDate < todayStr) {
             return NextResponse.json({ success: false, error: 'ไม่สามารถเลือกจองคิวย้อนหลังได้' }, { status: 400 });
         }

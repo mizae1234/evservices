@@ -9,11 +9,15 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { LoadingPage } from '@/components/ui/Loading';
-import { ChevronLeft, ChevronRight, Calendar, Plus, Settings, Check, X as XIcon, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar, Plus, Settings, Check, X as XIcon, Clock, MapPin } from 'lucide-react';
 import BayBookingModal from '@/components/bookings/BayBookingModal';
 import { MileageWarning } from '@/components/bookings/MileageWarning';
 import { ActionConfirmModal, defaultActionModal } from '@/components/bookings/modals/ActionConfirmModal';
 import type { ActionModalState } from '@/components/bookings/modals/ActionConfirmModal';
+import { RescheduleConflictAlert } from '@/components/bookings/RescheduleConflictAlert';
+import { checkBayConflict, findAlternativeSlotsInBay, findAlternativeAvailableBays } from '@/lib/bay-booking-utils';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
+import { getBangkokDateString } from '@/lib/utils';
 
 // --- Types ---
 interface BayBooking {
@@ -35,6 +39,7 @@ interface BayBooking {
     LastMileage?: number;
     ClaimDetail?: string | null;
     CustomerPhone?: string | null;
+    isMasked?: boolean;
 }
 
 interface AvailableSlot {
@@ -94,8 +99,12 @@ function BayCalendarPageInner() {
     const searchParams = useSearchParams();
     const paramDate = searchParams.get('date');
     const paramBranchId = searchParams.get('branchId');
+    const isCS = isCSRole(session?.user?.role);
+    const isAdmin = session?.user?.role === 'ADMIN';
+    const canSelectBranch = isAdmin || isCS;
+
     const [isLoading, setIsLoading] = useState(true);
-    const [selectedDate, setSelectedDate] = useState(() => paramDate || new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(() => paramDate || getBangkokDateString());
     const [selectedBranch, setSelectedBranch] = useState(paramBranchId || '');
     const [branches, setBranches] = useState<BranchOption[]>([]);
     const [bays, setBays] = useState<BayData[]>([]);
@@ -103,6 +112,8 @@ function BayCalendarPageInner() {
     const [isClosed, setIsClosed] = useState(false);
     const [closedReason, setClosedReason] = useState('');
     const [noBaysMessage, setNoBaysMessage] = useState('');
+
+    const currentBranchName = branches.find(b => b.BranchID.toString() === selectedBranch)?.BranchName || session?.user?.branchName || '';
 
     // Booking detail modal
     const [selectedBooking, setSelectedBooking] = useState<BayBooking | null>(null);
@@ -260,13 +271,13 @@ function BayCalendarPageInner() {
 
     // Date navigation
     const goToDate = (offset: number) => {
-        const d = new Date(selectedDate);
-        d.setDate(d.getDate() + offset);
-        setSelectedDate(d.toISOString().split('T')[0]);
+        const [y, m, d] = selectedDate.split('-').map(Number);
+        const nextDate = new Date(Date.UTC(y, m - 1, d + offset, 12, 0, 0));
+        setSelectedDate(getBangkokDateString(nextDate));
     };
 
     const goToToday = () => {
-        setSelectedDate(new Date().toISOString().split('T')[0]);
+        setSelectedDate(getBangkokDateString());
     };
 
     // Generate time slots for header
@@ -292,6 +303,9 @@ function BayCalendarPageInner() {
 
     // Handle booking click
     const handleBookingClick = async (booking: BayBooking, bayName: string) => {
+        if (booking.isMasked || booking.CustomerName === 'จองแล้ว (คิวอื่น)') {
+            return;
+        }
         setSelectedBooking(booking);
         setSelectedBayName(bayName);
         setActiveTab('detail');
@@ -327,6 +341,44 @@ function BayCalendarPageInner() {
         }
     };
 
+    // Real-time Reschedule Conflict & Alternatives Calculation
+    const rescheduleProposedStartTime = `${rescheduleHour}:${rescheduleMin}`;
+    const rescheduleDuration = selectedBooking?.DurationMinutes || 120;
+    const rescheduleProposedEndTime = customEndTime || computeDefaultEndTime(rescheduleHour, rescheduleMin, rescheduleDuration);
+    const effectiveRescheduleBays: BayData[] = rescheduleBays.length > 0 ? rescheduleBays : bays;
+    const currentRescheduleBay = effectiveRescheduleBays.find(b => b.BayID.toString() === rescheduleBayId);
+
+    const rescheduleConflictResult = isRescheduling ? checkBayConflict({
+        bay: currentRescheduleBay as any,
+        startTime: rescheduleProposedStartTime,
+        endTime: rescheduleProposedEndTime,
+        excludeBookingId: selectedBooking?.BookingID,
+    }) : { hasConflict: false };
+
+    const rescheduleAlternativeSlots = isRescheduling && rescheduleConflictResult.hasConflict ? findAlternativeSlotsInBay({
+        bay: currentRescheduleBay as any,
+        durationMinutes: rescheduleDuration,
+        excludeBookingId: selectedBooking?.BookingID,
+        maxSlots: 4,
+    }) : [];
+
+    const rescheduleAlternativeBays = isRescheduling && rescheduleConflictResult.hasConflict ? findAlternativeAvailableBays({
+        bays: effectiveRescheduleBays as any,
+        currentBayId: rescheduleBayId,
+        startTime: rescheduleProposedStartTime,
+        endTime: rescheduleProposedEndTime,
+        excludeBookingId: selectedBooking?.BookingID,
+    }) : [];
+
+    const handleSelectAlternativeSlot = (start: string) => {
+        const [h, m] = start.split(':');
+        handleStartChange(h, m);
+    };
+
+    const handleSelectAlternativeBay = (bayId: number) => {
+        setRescheduleBayId(bayId.toString());
+    };
+
     // Handle Save Reschedule
     const handleSaveReschedule = async () => {
         if (!selectedBooking) return;
@@ -341,10 +393,14 @@ function BayCalendarPageInner() {
             return;
         }
 
-        const duration = selectedBooking.DurationMinutes || 120;
+        if (rescheduleConflictResult.hasConflict) {
+            setRescheduleError(rescheduleConflictResult.reason || 'ช่วงเวลาที่เลือกทับซ้อนกับคิวอื่น');
+            return;
+        }
+
         const startM = timeToMinutes(`${rescheduleHour}:${rescheduleMin}`);
         const lunchStart = 12 * 60;
-        let endM = startM + duration;
+        let endM = startM + rescheduleDuration;
         if (startM < lunchStart && endM > lunchStart) {
             endM += 60; // Add 60 mins for lunch break
         }
@@ -666,15 +722,20 @@ function BayCalendarPageInner() {
                 <Card>
                     <CardContent className="p-4">
                         <div className="flex flex-wrap items-center gap-3">
-                            {/* Branch selector (admin only) */}
-                            {(session?.user?.role === 'ADMIN' || session?.user?.role === 'CS') && (
-                                <div className="w-60">
+                            {/* Branch Selector (Admin & all CS roles) / Branch Display (Service Center) */}
+                            {canSelectBranch ? (
+                                <div className="w-64">
                                     <Select
                                         value={selectedBranch}
                                         onChange={(e) => setSelectedBranch(e.target.value)}
-                                        options={branches.map(b => ({ value: b.BranchID.toString(), label: b.BranchName }))}
+                                        options={branches.map(b => ({ value: b.BranchID.toString(), label: `สาขา${b.BranchName}` }))}
                                         placeholder="เลือกสาขา"
                                     />
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-sm font-semibold">
+                                    <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
+                                    <span>สาขา{currentBranchName}</span>
                                 </div>
                             )}
 
@@ -724,7 +785,7 @@ function BayCalendarPageInner() {
                             </Button>
 
                             {/* Quick Actions - ADMIN/SERVICE_CENTER only */}
-                            {(session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') && (
+                            {(isAdmin || session?.user?.role === 'SERVICE_CENTER') && (
                                 <div className="flex items-center gap-2">
                                     <Button
                                         variant={isClosed ? "outline" : "danger"}
@@ -791,13 +852,21 @@ function BayCalendarPageInner() {
                     </Card>
                 ) : (
                     <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Clock className="w-5 h-5 text-blue-600" />
-                                {formatThaiDate(selectedDate)}
-                                <span className="text-sm font-normal text-gray-500">
-                                    ({operatingHours.openTime} - {operatingHours.closeTime})
-                                </span>
+                        <CardHeader className="py-3 px-4 bg-white border-b border-gray-100">
+                            <CardTitle className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <Clock className="w-5 h-5 text-blue-600" />
+                                    <span className="font-bold text-gray-900">{formatThaiDate(selectedDate)}</span>
+                                    <span className="text-sm font-normal text-gray-500">
+                                        ({operatingHours.openTime} - {operatingHours.closeTime})
+                                    </span>
+                                </div>
+                                {currentBranchName && (
+                                    <div className="flex items-center gap-1.5 text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">
+                                        <MapPin className="w-4 h-4 text-blue-600" />
+                                        สาขา{currentBranchName}
+                                    </div>
+                                )}
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
@@ -835,7 +904,7 @@ function BayCalendarPageInner() {
                                             onSlotClick={(startTime) => handleSlotClick(bay.BayID, bay.BayName, startTime)}
                                             onBookingDragStart={handleBookingDragStart}
                                             onTimelineDrop={handleTimelineDrop}
-                                            onToggleBayClose={session?.user?.role === 'CS' ? undefined : handleToggleBayClose}
+                                            onToggleBayClose={isCSRole(session?.user?.role) ? undefined : handleToggleBayClose}
                                             isClosed={isClosed}
                                         />
                                     ))}
@@ -936,8 +1005,8 @@ function BayCalendarPageInner() {
                                             </div>
                                         </div>
 
-                                        {/* EndTime adjustment for Branch / Admin users (HIDE from CS) */}
-                                        {session?.user?.role !== 'CS' && (
+                                        {/* EndTime adjustment for Branch / Admin users (HIDE from all CS roles) */}
+                                        {!isCS && (
                                             <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 space-y-2">
                                                 <div className="flex items-center justify-between text-xs font-bold text-purple-900">
                                                     <span>⏱️ เวลาเลิกงาน / เวลาเสร็จ (EndTime)</span>
@@ -996,24 +1065,48 @@ function BayCalendarPageInner() {
                                                 className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm font-bold text-gray-900 bg-white"
                                                 disabled={isRescheduleDateClosed}
                                             >
-                                                {((rescheduleBays.length > 0 ? rescheduleBays : bays).length === 0) && selectedBooking.BayID && (
+                                                {(effectiveRescheduleBays.length === 0) && selectedBooking.BayID && (
                                                     <option value={selectedBooking.BayID.toString()}>{selectedBayName}</option>
                                                 )}
-                                                {(rescheduleBays.length > 0 ? rescheduleBays : bays).map(b => {
+                                                {effectiveRescheduleBays.map(b => {
                                                     const isBayBlocked = b.Bookings?.some(bk => bk.CustomerName === '[ปิดช่องซ่อมชั่วคราว]' && bk.CarRegister === 'BLOCK');
+                                                    const bayConflict = checkBayConflict({
+                                                        bay: b as any,
+                                                        startTime: rescheduleProposedStartTime,
+                                                        endTime: rescheduleProposedEndTime,
+                                                        excludeBookingId: selectedBooking?.BookingID,
+                                                    });
+
+                                                    let statusLabel = '';
+                                                    if (isBayBlocked) statusLabel = ' (🚫 งดให้บริการชั่วคราว)';
+                                                    else if (bayConflict.hasConflict) statusLabel = ' (⚠️ มีคิวทับซ้อนในเวลานี้)';
+                                                    else statusLabel = ' (✅ ว่าง)';
+
                                                     return (
                                                         <option
                                                             key={b.BayID}
                                                             value={b.BayID.toString()}
                                                             disabled={isBayBlocked}
-                                                            className={isBayBlocked ? "text-gray-400 font-normal" : "text-gray-900 font-bold"}
+                                                            className={isBayBlocked || bayConflict.hasConflict ? "text-amber-800 font-semibold" : "text-gray-900 font-bold"}
                                                         >
-                                                            {b.BayName} {isBayBlocked ? ' (งดให้บริการชั่วคราว)' : ''}
+                                                            {b.BayName}{statusLabel}
                                                         </option>
                                                     );
                                                 })}
                                             </select>
                                         </div>
+
+                                        {/* Real-time Conflict & Alternative Slots Component */}
+                                        <RescheduleConflictAlert
+                                            conflictResult={rescheduleConflictResult}
+                                            alternativeSlots={rescheduleAlternativeSlots}
+                                            alternativeBays={rescheduleAlternativeBays}
+                                            currentBayName={currentRescheduleBay?.BayName}
+                                            onSelectAlternativeSlot={handleSelectAlternativeSlot}
+                                            onSelectAlternativeBay={handleSelectAlternativeBay}
+                                            hasValidTime={!!(rescheduleDate && rescheduleHour && rescheduleMin)}
+                                        />
+
                                         <div>
                                             <label className="block text-xs font-bold text-gray-700 mb-1">เหตุผลการเลื่อน *</label>
                                             <textarea
@@ -1038,7 +1131,11 @@ function BayCalendarPageInner() {
                                         <Button variant="outline" size="sm" onClick={() => setIsRescheduling(false)}>
                                             ยกเลิก
                                         </Button>
-                                        <Button size="sm" onClick={handleSaveReschedule} disabled={isApproving}>
+                                        <Button
+                                            size="sm"
+                                            onClick={handleSaveReschedule}
+                                            disabled={isApproving || rescheduleConflictResult.hasConflict || isRescheduleDateClosed || !rescheduleReason.trim()}
+                                        >
                                             บันทึก
                                         </Button>
                                     </div>
@@ -1207,7 +1304,7 @@ function BayCalendarPageInner() {
                                     >
                                         🔓 เปิดให้บริการตามปกติ
                                     </Button>
-                                ) : selectedBooking.Status === 0 && activeTab === 'detail' && (session?.user?.role === 'ADMIN' || session?.user?.role === 'SERVICE_CENTER') ? (
+                                ) : selectedBooking.Status === 0 && activeTab === 'detail' && (isAdmin || session?.user?.role === 'SERVICE_CENTER') ? (
                                     <>
                                         <Button variant="outline" size="sm" onClick={handleReject} disabled={isApproving}>
                                             <XIcon className="w-4 h-4 mr-1" />
@@ -1373,11 +1470,14 @@ function BayRow({
                     const left = (startOff / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
                     const width = (duration / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
                     
+                    const isMasked = !!booking.isMasked || booking.CustomerName === 'จองแล้ว (คิวอื่น)';
                     const isSystemBlock = booking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]';
-                    const config = isSystemBlock
+                    const config = isMasked
+                        ? { label: 'จองแล้ว', color: 'text-gray-500', bgColor: 'bg-gray-100/90', borderColor: 'border-gray-300' }
+                        : isSystemBlock
                         ? { label: 'งดให้บริการ', color: 'text-red-700', bgColor: 'bg-red-50/70', borderColor: 'border-red-200' }
                         : (STATUS_CONFIG[booking.Status] || STATUS_CONFIG[0]);
-                    const canDrag = !isSystemBlock && (booking.Status === 0 || booking.Status === 1);
+                    const canDrag = !isMasked && !isSystemBlock && (booking.Status === 0 || booking.Status === 1);
 
                     const lane = laneMap.get(booking.BookingID) || 0;
                     const laneTop = 4 + lane * LANE_HEIGHT;
@@ -1388,19 +1488,19 @@ function BayRow({
                             key={booking.BookingID}
                             draggable={canDrag}
                             onDragStart={(e) => onBookingDragStart(e, booking)}
-                            className={`absolute ${config.bgColor} border ${config.borderColor} rounded-md px-2 flex items-center gap-1 overflow-hidden cursor-pointer hover:shadow-md transition-shadow text-left select-none ${canDrag ? 'active:cursor-grabbing' : 'cursor-default'}`}
+                            className={`absolute ${config.bgColor} border ${config.borderColor} rounded-md px-2 flex items-center gap-1 overflow-hidden cursor-pointer hover:shadow-md transition-shadow text-left select-none ${canDrag ? 'active:cursor-grabbing' : isMasked ? 'cursor-not-allowed opacity-75' : 'cursor-default'}`}
                             style={{ left, width: Math.max(width, 40), top: laneTop, height: laneHeight }}
                             onClick={() => onBookingClick(booking)}
-                            title={isSystemBlock ? `ช่องซ่อมนี้ปิดบริการชั่วคราว: ${booking.CarModel}` : `${booking.BookingNo} | ${booking.CustomerName} | ${booking.StartTime}-${booking.EndTime}${canDrag ? ' (ลากขยับเพื่อเลื่อนคิว)' : ''}`}
+                            title={isMasked ? `จองแล้ว (คิวอื่น) ${booking.StartTime}-${booking.EndTime}` : isSystemBlock ? `ช่องซ่อมนี้ปิดบริการชั่วคราว: ${booking.CarModel}` : `${booking.BookingNo} | ${booking.CustomerName} | ${booking.StartTime}-${booking.EndTime}${canDrag ? ' (ลากขยับเพื่อเลื่อนคิว)' : ''}`}
                         >
                             <div className="min-w-0 flex-1">
                                 <p className={`text-[11px] font-bold ${config.color} truncate`}>
-                                    {isSystemBlock ? '🚫 งดให้บริการชั่วคราว' : (booking.ServiceType?.Name || booking.CarModel)}
+                                    {isMasked ? '🔒 จองแล้ว (คิวอื่น)' : isSystemBlock ? '🚫 งดให้บริการชั่วคราว' : (booking.ServiceType?.Name || booking.CarModel)}
                                 </p>
                                 <p className="text-[10px] text-gray-500 truncate">
-                                    {isSystemBlock ? booking.CarModel : `${booking.CustomerName} • ${booking.CarRegister}`}
+                                    {isMasked ? `${booking.StartTime} - ${booking.EndTime} น.` : isSystemBlock ? booking.CarModel : `${booking.CustomerName} • ${booking.CarRegister}`}
                                 </p>
-                                {!isSystemBlock && (booking.Mileage || booking.ClaimDetail) && (
+                                {!isMasked && !isSystemBlock && (booking.Mileage || booking.ClaimDetail) && (
                                     <p className="text-[9px] text-gray-400 truncate">
                                         {booking.Mileage ? `${booking.Mileage.toLocaleString()} กม.` : ''}
                                         {booking.Mileage && booking.ClaimDetail ? ' • ' : ''}

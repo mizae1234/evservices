@@ -20,6 +20,7 @@ import { Header } from '@/components/layouts';
 import { formatDate } from '@/lib/utils';
 import { Branch } from '@/types';
 import { ArrowLeft, Save, Plus, Trash2, Calendar } from 'lucide-react';
+import { isCSRole } from '@/lib/permissions';
 
 
 
@@ -61,7 +62,7 @@ export default function BookingSettingsPage() {
 
     useEffect(() => {
         if (session?.user) {
-            if (session.user.role === 'CS') {
+            if (isCSRole(session.user.role)) {
                 router.push('/service-center/bookings');
                 return;
             }

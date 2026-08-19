@@ -8,9 +8,12 @@ import {
     Card, CardContent, CardHeader, CardTitle,
     Button, Input, Select, LoadingPage,
 } from '@/components/ui';
-import { ArrowLeft, Clock, Check, Loader2, Plus, Trash2, GripVertical, Save, Wrench, ToggleLeft, ToggleRight, Globe } from 'lucide-react';
+import { ArrowLeft, Clock, Check, Loader2, Plus, Trash2, GripVertical, Save, Wrench, ToggleLeft, ToggleRight, Globe, MapPin } from 'lucide-react';
 import { CAR_MODEL_FLAT_RATES } from '@/lib/flat-rates-data';
 import { MileageWarning } from '@/components/bookings/MileageWarning';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
+import { getBangkokDateString } from '@/lib/utils';
+import { timeToMinutes, minutesToTime } from '@/lib/bay-booking-utils';
 
 interface CarModel {
     ModelID: number;
@@ -36,17 +39,6 @@ interface FlatRate {
     Mileage: { MileageID: number; Value: number; Label: string } | null;
 }
 
-function timeToMinutes(t: string): number {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-}
-
-function minutesToTime(m: number): string {
-    const h = Math.floor(m / 60);
-    const min = m % 60;
-    return `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
-}
-
 function formatDuration(min: number): string {
     const h = Math.floor(min / 60);
     const m = min % 60;
@@ -67,15 +59,17 @@ function BayBookingPageInner() {
     const router = useRouter();
     const { data: session } = useSession();
     const searchParams = useSearchParams();
-    const isCS = session?.user?.role === 'CS';
+    const isCS = isCSRole(session?.user?.role);
+    const allowedType = getAllowedBookingType(session?.user);
 
     const bayId = searchParams.get('bayId') || '';
     const bayName = searchParams.get('bayName') || 'Bay';
     const branchId = searchParams.get('branchId') || '';
-    const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
+    const date = searchParams.get('date') || getBangkokDateString();
     const initialStartTime = searchParams.get('startTime') || '08:30';
 
     // Master data
+    const [branchName, setBranchName] = useState(session?.user?.branchName || '');
     const [serviceTypes, setServiceTypes] = useState<ServiceType[]>([]);
     const [flatRates, setFlatRates] = useState<FlatRate[]>([]);
     const [isLoadingData, setIsLoadingData] = useState(true);
@@ -98,7 +92,13 @@ function BayBookingPageInner() {
     const [claimDetail, setClaimDetail] = useState('');
     const [projectType, setProjectType] = useState('');
     const [lastMileage, setLastMileage] = useState('');
-    const [bookingType, setBookingType] = useState<'EV7' | 'RETAIL' | 'LINEMAN'>('EV7');
+    const [bookingType, setBookingType] = useState<'EV7' | 'RETAIL' | 'LINEMAN'>((allowedType as any) || 'EV7');
+
+    useEffect(() => {
+        if (allowedType) {
+            setBookingType(allowedType as any);
+        }
+    }, [allowedType]);
 
     // Car models dropdown
     const [carModels, setCarModels] = useState<CarModel[]>([]);
@@ -207,22 +207,28 @@ function BayBookingPageInner() {
     useEffect(() => {
         async function loadData() {
             try {
-                const [stRes, frRes, cmRes, baRes] = await Promise.all([
+                const [stRes, frRes, cmRes, baRes, brRes] = await Promise.all([
                     fetch('/api/service-types'),
                     fetch('/api/flat-rates'),
                     fetch('/api/car-models'),
                     fetch(`/api/bookings/bay-availability?branchId=${branchId}&date=${date}`),
+                    fetch('/api/branches'),
                 ]);
-                const [stData, frData, cmData, baData] = await Promise.all([
+                const [stData, frData, cmData, baData, brData] = await Promise.all([
                     stRes.json(),
                     frRes.json(),
                     cmRes.json(),
                     baRes.json(),
+                    brRes.json(),
                 ]);
                 if (stData.success) setServiceTypes(stData.data);
                 if (frData.success) setFlatRates(frData.data);
                 if (cmData.success) setCarModels(cmData.data);
                 if (baData.success) setBaysData(baData.data || []);
+                if (brData.success && Array.isArray(brData.data)) {
+                    const found = brData.data.find((b: any) => b.BranchID.toString() === branchId.toString());
+                    if (found) setBranchName(found.BranchName);
+                }
             } catch (err) {
                 console.error('Error loading data:', err);
             } finally {
@@ -512,60 +518,81 @@ function BayBookingPageInner() {
     return (
         <>
             <Header
-                title={`จอง ${bayName}`}
-                subtitle={`${formatThaiDate(date)} • เริ่ม ${initialStartTime}`}
+                title={`จอง ${bayName} ${branchName ? `• สาขา${branchName}` : ''} ${allowedType ? `• ${allowedType === 'LINEMAN' ? 'Lineman' : allowedType}` : ''}`}
+                subtitle={`${branchName ? `📍 สาขา${branchName} • ` : ''}${formatThaiDate(date)} • เริ่ม ${initialStartTime} • ประเภท: ${bookingType === 'LINEMAN' ? 'Lineman' : bookingType === 'RETAIL' ? 'Retail (ทั่วไป)' : 'EV7 (Taxi)'}`}
             />
 
             <div className="p-4 lg:p-6 w-full max-w-7xl mx-auto">
-                {/* Back */}
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => router.push(`/service-center/bookings/bay-calendar?branchId=${branchId}&date=${date}`)}
-                    className="mb-4"
-                >
-                    <ArrowLeft className="w-4 h-4 mr-1" />
-                    กลับ Bay Calendar
-                </Button>
+                {/* Back & Summary Info Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => router.push(`/service-center/bookings/bay-calendar?branchId=${branchId}&date=${date}`)}
+                    >
+                        <ArrowLeft className="w-4 h-4 mr-1" />
+                        กลับ Bay Calendar
+                    </Button>
+
+                    {branchName && (
+                        <div className="flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-sm font-bold shadow-xs">
+                            <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
+                            <span>สาขา{branchName}</span>
+                        </div>
+                    )}
+                </div>
 
                 <div className="space-y-6">
                     {/* ========== ประเภทลูกค้า ========== */}
                     <div className="flex gap-3">
-                        <button
-                            type="button"
-                            onClick={() => handleBookingTypeChange('EV7')}
-                            className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                                bookingType === 'EV7'
-                                    ? 'bg-blue-50 border-blue-400 text-blue-700 ring-2 ring-blue-200'
-                                    : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                            }`}
-                        >
-                            🚕 EV7 (รถ Taxi)
-                        </button>
-                        {!isCS && (
-                            <button
-                                type="button"
-                                onClick={() => handleBookingTypeChange('RETAIL')}
-                                className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                                    bookingType === 'RETAIL'
-                                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
-                                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                                }`}
-                            >
-                                🚗 Retail (ลูกค้าทั่วไป)
-                            </button>
+                        {allowedType ? (
+                            <div className="flex-1 py-3 px-4 rounded-xl border-2 border-green-500 bg-green-50 text-green-800 ring-2 ring-green-200 text-sm font-bold flex items-center justify-between shadow-sm">
+                                <span className="flex items-center gap-2 text-base">
+                                    🛵 ประเภทการจอง: <span className="text-green-900 font-extrabold">{allowedType === 'LINEMAN' ? 'Lineman' : allowedType}</span>
+                                </span>
+                                <span className="text-xs bg-green-200 text-green-900 px-2.5 py-1 rounded-full font-bold">
+                                    ✓ ล็อกสิทธิ์เฉพาะ {allowedType === 'LINEMAN' ? 'Lineman' : allowedType}
+                                </span>
+                            </div>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    onClick={() => handleBookingTypeChange('EV7')}
+                                    className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                                        bookingType === 'EV7'
+                                            ? 'bg-blue-50 border-blue-400 text-blue-700 ring-2 ring-blue-200'
+                                            : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                                    }`}
+                                >
+                                    🚕 EV7 (รถ Taxi)
+                                </button>
+                                {!isCS && (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleBookingTypeChange('RETAIL')}
+                                        className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                                            bookingType === 'RETAIL'
+                                                ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
+                                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        🚗 Retail (ลูกค้าทั่วไป)
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => handleBookingTypeChange('LINEMAN')}
+                                    className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
+                                        bookingType === 'LINEMAN'
+                                            ? 'bg-green-50 border-green-400 text-green-700 ring-2 ring-green-200'
+                                            : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                                    }`}
+                                >
+                                    🛵 Lineman
+                                </button>
+                            </>
                         )}
-                        <button
-                            type="button"
-                            onClick={() => handleBookingTypeChange('LINEMAN')}
-                            className={`flex-1 py-3 rounded-xl border-2 text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                                bookingType === 'LINEMAN'
-                                    ? 'bg-green-50 border-green-400 text-green-700 ring-2 ring-green-200'
-                                    : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
-                            }`}
-                        >
-                            🛵 Lineman
-                        </button>
                     </div>
 
                     {/* ========== STEP 1: ประเภทบริการ ========== */}
@@ -897,7 +924,7 @@ function BayBookingPageInner() {
                                         />
                                     </div>
                                 </div>
-                                {session?.user?.role !== 'CS' && (
+                                {!isCS && (
                                     !useCustomDuration ? (
                                         <button onClick={() => { setUseCustomDuration(true); setCustomDuration(effectiveDuration.toString()); }}
                                             className="text-blue-600 hover:underline text-xs">

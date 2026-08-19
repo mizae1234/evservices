@@ -8,6 +8,7 @@ import {
     Button, Input, Select, LoadingPage,
 } from '@/components/ui';
 import { Plus, Trash2, ArrowLeft, GripVertical, Save, Wrench, ToggleLeft, ToggleRight, Globe } from 'lucide-react';
+import { isCSRole } from '@/lib/permissions';
 
 interface ServiceBay {
     BayID: number;
@@ -41,7 +42,7 @@ export default function BayManagementPage() {
 
     const userRole = session?.user?.role;
     const userBranchId = session?.user?.branchId;
-    const canSelectBranch = userRole === 'ADMIN' || userRole === 'CS';
+    const canSelectBranch = userRole === 'ADMIN' || isCSRole(userRole);
 
     // Effective branchId for API calls
     const effectiveBranchId = canSelectBranch ? selectedBranch : userBranchId?.toString() || '';

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Button } from '@/components/ui';
 import { Calendar } from 'lucide-react';
+import { getBangkokDateString } from '@/lib/utils';
 
 interface CalendarDayStats {
     isClosed: boolean;
@@ -88,7 +89,7 @@ export function MonthlyCalendar({
             cells.push(<div key={`empty-${i}`} className="bg-gray-50/50 border border-gray-100 rounded-xl h-24" />);
         }
         
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = getBangkokDateString();
 
         // Days in the month
         for (let day = 1; day <= daysInMonth; day++) {

@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { ArrowLeft, Car, Milestone, Clock } from 'lucide-react';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
+import { getBangkokDateString } from '@/lib/utils';
 
 interface BranchOption {
     BranchID: number;
@@ -32,18 +34,22 @@ interface VehicleData {
     ProjectType: string;
     Model: string;
     CustomerName: string;
+    ModelCode?: string;
 }
 
 function NewBookingPageInner() {
-    const { data: session } = useSession();
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { data: session } = useSession();
 
     // Query params pre-fills
     const paramBranchId = searchParams.get('branchId') || '';
     const paramDate = searchParams.get('date') || '';
     const paramStartTime = searchParams.get('startTime') || '';
     const paramEndTime = searchParams.get('endTime') || '';
+
+    const isCS = isCSRole(session?.user?.role);
+    const allowedType = getAllowedBookingType(session?.user);
 
     // Options lists
     const [branches, setBranches] = useState<BranchOption[]>([]);
@@ -52,7 +58,7 @@ function NewBookingPageInner() {
 
     // Form state
     const [formData, setFormData] = useState({
-        BookingDate: paramDate || new Date().toISOString().split('T')[0],
+        BookingDate: paramDate || getBangkokDateString(),
         BranchID: paramBranchId,
         StartTime: paramStartTime,
         EndTime: paramEndTime,
@@ -79,7 +85,13 @@ function NewBookingPageInner() {
     const [isBranchClosed, setIsBranchClosed] = useState(false);
     const [branchClosedReason, setBranchClosedReason] = useState('');
     const [isCheckMileage, setIsCheckMileage] = useState(true);
-    const [bookingType, setBookingType] = useState<'EV7' | 'RETAIL' | 'LINEMAN'>('EV7');
+    const [bookingType, setBookingType] = useState<'EV7' | 'RETAIL' | 'LINEMAN'>((allowedType as any) || 'EV7');
+
+    useEffect(() => {
+        if (allowedType) {
+            setBookingType(allowedType as any);
+        }
+    }, [allowedType]);
 
     // Vehicle lookup suggestions
     const [vehicleSuggestions, setVehicleSuggestions] = useState<VehicleData[]>([]);
@@ -87,7 +99,6 @@ function NewBookingPageInner() {
     const [showSuggestions, setShowSuggestions] = useState(false);
 
     const isAdmin = session?.user?.role === 'ADMIN';
-    const isCS = session?.user?.role === 'CS';
     const canSelectBranch = isAdmin || isCS;
 
     // Fetch dependencies
@@ -387,70 +398,83 @@ function NewBookingPageInner() {
                             </div>
                         )}
 
-                        {/* Booking Type Toggle — hidden RETAIL for CS */}
+                        {/* Booking Type Display */}
                         <div className="flex gap-3">
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setBookingType('EV7');
-                                    setActiveBookingWarning(null);
-                                    setVehicleSuggestions([]);
-                                }}
-                                className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                                    bookingType === 'EV7'
-                                        ? 'bg-blue-50 border-blue-400 text-blue-700 ring-2 ring-blue-200'
-                                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                                }`}
-                            >
-                                🚕 EV7 (รถ Taxi)
-                            </button>
-                            {!isCS && (
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        setBookingType('RETAIL');
-                                        setActiveBookingWarning(null);
-                                        setVehicleSuggestions([]);
-                                        setShowSuggestions(false);
-                                        // Clear EV7-specific fields
-                                        setFormData(prev => ({
-                                            ...prev,
-                                            VinNo: '',
-                                            ProjectType: '',
-                                            InventoryItemID: null,
-                                        }));
-                                    }}
-                                    className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                                        bookingType === 'RETAIL'
-                                            ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
-                                            : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                                    }`}
-                                >
-                                    🚗 Retail (ลูกค้าทั่วไป)
-                                </button>
+                            {allowedType ? (
+                                <div className="flex-1 py-3 px-4 rounded-xl border-2 border-green-500 bg-green-50 text-green-800 ring-2 ring-green-200 text-sm font-bold flex items-center justify-between shadow-sm">
+                                    <span className="flex items-center gap-2 text-base">
+                                        🛵 ประเภทการจอง: <span className="text-green-900 font-extrabold">{allowedType === 'LINEMAN' ? 'Lineman' : allowedType}</span>
+                                    </span>
+                                    <span className="text-xs bg-green-200 text-green-900 px-2.5 py-1 rounded-full font-bold">
+                                        ✓ ล็อกสิทธิ์เฉพาะ {allowedType === 'LINEMAN' ? 'Lineman' : allowedType}
+                                    </span>
+                                </div>
+                            ) : (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setBookingType('EV7');
+                                            setActiveBookingWarning(null);
+                                            setVehicleSuggestions([]);
+                                        }}
+                                        className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
+                                            bookingType === 'EV7'
+                                                ? 'bg-blue-50 border-blue-400 text-blue-700 ring-2 ring-blue-200'
+                                                : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        🚕 EV7 (รถ Taxi)
+                                    </button>
+                                    {!isCS && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setBookingType('RETAIL');
+                                                setActiveBookingWarning(null);
+                                                setVehicleSuggestions([]);
+                                                setShowSuggestions(false);
+                                                // Clear EV7-specific fields
+                                                setFormData(prev => ({
+                                                    ...prev,
+                                                    VinNo: '',
+                                                    ProjectType: '',
+                                                    InventoryItemID: null,
+                                                }));
+                                            }}
+                                            className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
+                                                bookingType === 'RETAIL'
+                                                    ? 'bg-emerald-50 border-emerald-400 text-emerald-700 ring-2 ring-emerald-200'
+                                                    : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
+                                            }`}
+                                        >
+                                            🚗 Retail (ลูกค้าทั่วไป)
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setBookingType('LINEMAN');
+                                            setActiveBookingWarning(null);
+                                            setVehicleSuggestions([]);
+                                            setShowSuggestions(false);
+                                            setFormData(prev => ({
+                                                ...prev,
+                                                VinNo: '',
+                                                ProjectType: '',
+                                                InventoryItemID: null,
+                                            }));
+                                        }}
+                                        className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
+                                            bookingType === 'LINEMAN'
+                                                ? 'bg-green-50 border-green-400 text-green-700 ring-2 ring-green-200'
+                                                : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        🛵 Lineman
+                                    </button>
+                                </>
                             )}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setBookingType('LINEMAN');
-                                    setActiveBookingWarning(null);
-                                    setVehicleSuggestions([]);
-                                    setShowSuggestions(false);
-                                    setFormData(prev => ({
-                                        ...prev,
-                                        VinNo: '',
-                                        ProjectType: '',
-                                        InventoryItemID: null,
-                                    }));
-                                }}
-                                className={`flex-1 py-3 rounded-xl border text-sm font-bold transition-all duration-200 flex items-center justify-center gap-2 ${
-                                    bookingType === 'LINEMAN'
-                                        ? 'bg-green-50 border-green-400 text-green-700 ring-2 ring-green-200'
-                                        : 'bg-gray-50 border-gray-200 text-gray-400 hover:bg-gray-100'
-                                }`}
-                            >
-                                🛵 Lineman
-                            </button>
                         </div>
 
                         {bookingType === 'RETAIL' && (
@@ -481,7 +505,7 @@ function NewBookingPageInner() {
                                     type="date"
                                     value={formData.BookingDate}
                                     onChange={handleChange}
-                                    min={new Date().toISOString().split('T')[0]}
+                                    min={getBangkokDateString()}
                                     required
                                 />
                             </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Modal, Button } from '@/components/ui';
-import { formatDate } from '@/lib/utils';
+import { formatDate, getBangkokDateString } from '@/lib/utils';
 import { SlotAvailability } from '@/types';
 import { MileageWarning } from '@/components/bookings/MileageWarning';
 
@@ -148,7 +148,7 @@ export function RescheduleModal({ isOpen, onClose, booking, onSuccess, onError }
                         <label className="block text-xs font-bold text-gray-700 mb-1">เลือกวันที่จองใหม่ *</label>
                         <input
                             type="date"
-                            min={new Date().toISOString().split('T')[0]}
+                            min={getBangkokDateString()}
                             value={rescheduleDate}
                             onChange={(e) => {
                                 setRescheduleDate(e.target.value);

@@ -18,6 +18,7 @@ import {
     FileUpload,
 } from '@/components/ui';
 import { CarModel, Branch } from '@/types';
+import { isCSRole } from '@/lib/permissions';
 import { Save, Send } from 'lucide-react';
 
 export interface ClaimFormData {
@@ -271,7 +272,9 @@ export default function ClaimForm({
             }
         }
 
-        const canSelectBranch = session?.user?.role === 'ADMIN' || session?.user?.role === 'CS';
+        const isAdmin = session?.user?.role === 'ADMIN';
+        const isCS = isCSRole(session?.user?.role);
+        const canSelectBranch = isAdmin || isCS;
         if (canSelectBranch && !formData.BranchID) {
             newErrors.BranchID = 'กรุณาเลือกสาขา';
         }
@@ -299,7 +302,7 @@ export default function ClaimForm({
     }));
 
     const isAdmin = session?.user?.role === 'ADMIN';
-    const isCS = session?.user?.role === 'CS';
+    const isCS = isCSRole(session?.user?.role);
     const canSelectBranch = isAdmin || isCS;
 
     return (

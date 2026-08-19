@@ -84,7 +84,12 @@ export default function ProfilePage() {
                                 <div>
                                     <p className="text-xs text-gray-500">บทบาท</p>
                                     <p className="font-medium text-gray-900">
-                                        {session?.user?.role === 'ADMIN' ? 'ผู้ดูแลระบบ' : 'ศูนย์บริการ'}
+                                        {session?.user?.roleName || (
+                                            session?.user?.role === 'ADMIN' ? 'ผู้ดูแลระบบ' :
+                                            session?.user?.role === 'CS' ? 'ฝ่ายบริการลูกค้า (CS)' :
+                                            session?.user?.role?.startsWith('CS_') ? `ฝ่ายบริการลูกค้า (${session?.user?.role.substring(3)})` :
+                                            'ศูนย์บริการ'
+                                        )}
                                     </p>
                                 </div>
                                 {session?.user?.branchName && (

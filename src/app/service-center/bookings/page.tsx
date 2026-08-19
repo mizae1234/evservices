@@ -17,12 +17,13 @@ import {
     Modal,
 } from '@/components/ui';
 import { Header } from '@/components/layouts';
-import { formatDate } from '@/lib/utils';
+import { formatDate, getBangkokDateString } from '@/lib/utils';
 import { Branch, SlotAvailability } from '@/types';
-import { Plus, Settings, Check, X, ClipboardCopy, Search, Calendar, Clock, Pencil, PhoneCall, Timer } from 'lucide-react';
+import { Plus, Settings, Check, X, ClipboardCopy, Search, Calendar, Clock, Pencil, PhoneCall, Timer, ChevronLeft, ChevronRight } from 'lucide-react';
 import { CSStatusModal } from '@/components/bookings/modals/CSStatusModal';
 import { RescheduleModal } from '@/components/bookings/modals/RescheduleModal';
 import { BookingDetailModal } from '@/components/bookings/modals/BookingDetailModal';
+import { isCSRole } from '@/lib/permissions';
 import { SlotOverrideModal } from '@/components/bookings/modals/SlotOverrideModal';
 import { DurationExtensionModal } from '@/components/bookings/modals/DurationExtensionModal';
 import { ActionConfirmModal, defaultActionModal } from '@/components/bookings/modals/ActionConfirmModal';
@@ -67,7 +68,7 @@ function BookingsPageContent() {
     const dateFromParam = searchParams.get('date');
     const searchFromParam = searchParams.get('search');
     const [filterDate, setFilterDate] = useState<string>(
-        dateFromParam || new Date().toISOString().split('T')[0]
+        dateFromParam || getBangkokDateString()
     );
     const [filterBranch, setFilterBranch] = useState<string>('');
     const [filterStatus] = useState<string>('');
@@ -88,12 +89,12 @@ function BookingsPageContent() {
     const [pagination, setPagination] = useState({
         total: 0,
         page: 1,
-        pageSize: 10,
+        pageSize: 25,
         totalPages: 0,
     });
 
     const isAdmin = session?.user?.role === 'ADMIN';
-    const isCS = session?.user?.role === 'CS';
+    const isCS = isCSRole(session?.user?.role);
     const canSelectBranch = isAdmin || isCS;
 
     // Daily Slots timetable
@@ -253,14 +254,19 @@ function BookingsPageContent() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, filterBranch, filterDate]);
 
+    // Reset to page 1 when filters change
+    useEffect(() => {
+        setPagination(prev => ({ ...prev, page: 1 }));
+    }, [filterDate, filterBranch, filterStatus, showOverdueOnly, searchQuery]);
+
     // Reload Bookings
     useEffect(() => {
         if (session?.user) {
-            fetchBookings();
+            fetchBookings(pagination.page, pagination.pageSize);
             fetchOverdueCount();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [session, filterDate, filterBranch, filterStatus, pagination.page, showOverdueOnly, searchQuery]);
+    }, [session, filterDate, filterBranch, filterStatus, pagination.page, pagination.pageSize, showOverdueOnly, searchQuery]);
 
     useEffect(() => {
         if (session?.user) {
@@ -268,8 +274,6 @@ function BookingsPageContent() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session]);
-
-
 
     const fetchOverdueCount = async () => {
         try {
@@ -311,12 +315,12 @@ function BookingsPageContent() {
         }
     };
 
-    const fetchBookings = async (page = 1) => {
+    const fetchBookings = async (page = pagination.page, pageSize = pagination.pageSize) => {
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
             params.set('page', page.toString());
-            params.set('pageSize', pagination.pageSize.toString());
+            params.set('pageSize', pageSize.toString());
             
             if (showOverdueOnly) {
                 params.set('isOverdue', 'true');
@@ -342,6 +346,7 @@ function BookingsPageContent() {
                 setPagination(prev => ({
                     ...prev,
                     page,
+                    pageSize,
                     total: data.total,
                     totalPages: data.totalPages,
                 }));
@@ -353,10 +358,19 @@ function BookingsPageContent() {
         }
     };
 
+    const handlePageChange = (newPage: number) => {
+        if (newPage < 1 || newPage > pagination.totalPages) return;
+        setPagination(prev => ({ ...prev, page: newPage }));
+    };
+
+    const handlePageSizeChange = (newSize: number) => {
+        setPagination(prev => ({ ...prev, pageSize: newSize, page: 1 }));
+    };
+
     const handleNewBookingRedirect = (customDate?: string, startTime?: string, endTime?: string) => {
         const queryParams = new URLSearchParams();
         if (filterBranch) queryParams.set('branchId', filterBranch);
-        queryParams.set('date', customDate || filterDate || new Date().toISOString().split('T')[0]);
+        queryParams.set('date', customDate || filterDate || getBangkokDateString());
         if (startTime) queryParams.set('startTime', startTime);
         if (endTime) queryParams.set('endTime', endTime);
         
@@ -832,6 +846,61 @@ function BookingsPageContent() {
                                         )}
                                     </tbody>
                                 </table>
+                            </div>
+
+                            {/* Pagination Controls */}
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50/50">
+                                <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                                    <span>
+                                        แสดง {pagination.total > 0 ? (pagination.page - 1) * pagination.pageSize + 1 : 0} -{' '}
+                                        {Math.min(pagination.page * pagination.pageSize, pagination.total)}{' '}
+                                        จากทั้งหมด <strong className="text-gray-900 font-bold">{pagination.total}</strong> รายการ
+                                    </span>
+                                    <div className="flex items-center gap-1.5 ml-2 border-l border-gray-300 pl-3">
+                                        <span>แสดงหน้าละ</span>
+                                        <select
+                                            value={pagination.pageSize}
+                                            onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                                            className="border border-gray-300 rounded px-2 py-0.5 text-xs text-gray-900 bg-white font-medium"
+                                        >
+                                            <option value={10}>10</option>
+                                            <option value={25}>25</option>
+                                            <option value={50}>50</option>
+                                            <option value={100}>100</option>
+                                        </select>
+                                        <span>รายการ</span>
+                                    </div>
+                                </div>
+
+                                {pagination.totalPages > 1 && (
+                                    <div className="flex items-center gap-1.5">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handlePageChange(pagination.page - 1)}
+                                            disabled={pagination.page <= 1}
+                                            className="h-8 px-2.5 text-xs font-semibold"
+                                        >
+                                            <ChevronLeft className="w-4 h-4 mr-1" />
+                                            ก่อนหน้า
+                                        </Button>
+
+                                        <span className="px-3 py-1 text-xs font-bold text-gray-700 bg-white border border-gray-200 rounded-lg">
+                                            หน้า {pagination.page} / {pagination.totalPages}
+                                        </span>
+
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handlePageChange(pagination.page + 1)}
+                                            disabled={pagination.page >= pagination.totalPages}
+                                            className="h-8 px-2.5 text-xs font-semibold"
+                                        >
+                                            ถัดไป
+                                            <ChevronRight className="w-4 h-4 ml-1" />
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         </CardContent>
                     </Card>

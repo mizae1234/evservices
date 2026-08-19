@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Clock, Car, User, X, Loader2 } from 'lucide-react';
+import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 
 interface ServiceType {
     ServiceTypeID: number;
@@ -185,6 +186,7 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
 
         setIsSubmitting(true);
         try {
+            const allowedType = getAllowedBookingType(userRole);
             const res = await fetch('/api/bookings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -203,6 +205,7 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
                     DurationMinutes: effectiveDuration,
                     Mileage: selectedMileage ? parseInt(selectedMileage) : 0,
                     LastMileage: 0,
+                    BookingType: allowedType || 'EV7',
                     forceOverlap,
                 }),
             });
@@ -211,7 +214,7 @@ export default function BayBookingModal({ isOpen, onClose, onSuccess, bayId, bay
             if (data.success) {
                 onSuccess();
                 onClose();
-            } else if (res.status === 409 && !forceOverlap && userRole && userRole !== 'CS') {
+            } else if (res.status === 409 && !forceOverlap && userRole && !isCSRole(userRole)) {
                 // Overlap detected — SERVICE_CENTER/ADMIN can force override
                 setIsSubmitting(false);
                 const confirmed = confirm(

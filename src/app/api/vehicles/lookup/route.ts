@@ -3,6 +3,9 @@
 // Calls EV7 Tracking API to get car info
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { getAllowedBookingType, isProjectTypeMatchingAllowedType } from '@/lib/permissions';
 
 interface VehicleData {
     InventoryItemID: number;
@@ -27,6 +30,13 @@ const EV7_API_TOKEN = process.env.EV7_API_TOKEN || '';
 
 export async function GET(request: NextRequest) {
     try {
+        const session = await getServerSession(authOptions);
+        if (!session?.user) {
+            return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+        }
+
+        const allowedType = getAllowedBookingType(session.user);
+
         const searchParams = request.nextUrl.searchParams;
         const query = searchParams.get('q') || '';
 
@@ -62,6 +72,19 @@ export async function GET(request: NextRequest) {
         // Check if the API found a vehicle
         if (apiResponse.Status === 1 && apiResponse.Data) {
             const vehicle = apiResponse.Data;
+
+            // If user is scoped to a partner (e.g. CS_LINEMAN -> 'LINEMAN'), filter by ProjectType
+            if (allowedType && allowedType !== 'EV7') {
+                const matchesProject = isProjectTypeMatchingAllowedType(vehicle.ProjectType, allowedType);
+                if (!matchesProject) {
+                    return NextResponse.json({
+                        success: true,
+                        data: [],
+                        message: `ไม่พบข้อมูลรถในโครงการ ${allowedType}`,
+                    });
+                }
+            }
+
             return NextResponse.json({
                 success: true,
                 data: [{

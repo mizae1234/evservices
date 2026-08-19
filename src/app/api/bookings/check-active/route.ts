@@ -5,6 +5,8 @@ import prisma from '@/lib/prisma';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 
+import { getAllowedBookingType } from '@/lib/permissions';
+
 export async function GET(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -68,17 +70,20 @@ export async function GET(request: NextRequest) {
         });
 
         if (activeBooking) {
+            const allowedType = getAllowedBookingType(session.user);
+            const isDifferentType = allowedType && activeBooking.BookingType !== allowedType;
+
             return NextResponse.json({
                 success: true,
                 hasActiveBooking: true,
                 booking: {
-                    BookingNo: activeBooking.BookingNo,
+                    BookingNo: isDifferentType ? '***' : activeBooking.BookingNo,
                     BookingDate: activeBooking.BookingDate,
                     StartTime: activeBooking.StartTime,
                     EndTime: activeBooking.EndTime,
                     Status: activeBooking.Status,
                     BranchName: activeBooking.Branch.BranchName,
-                    CustomerName: activeBooking.CustomerName
+                    CustomerName: isDifferentType ? 'มีคิวจองแล้วในระบบ' : activeBooking.CustomerName
                 }
             });
         }

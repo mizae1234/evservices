@@ -10,6 +10,8 @@ declare module 'next-auth' {
             email: string;
             name: string;
             role: UserRole;
+            roleName?: string;
+            allowedBookingType?: string | null;
             branchId?: number;
             branchName?: string;
         };
@@ -20,6 +22,8 @@ declare module 'next-auth' {
         email: string;
         name: string;
         role: UserRole;
+        roleName?: string;
+        allowedBookingType?: string | null;
         branchId?: number;
         branchName?: string;
     }
@@ -29,6 +33,8 @@ declare module 'next-auth/jwt' {
     interface JWT {
         id: string;
         role: UserRole;
+        roleName?: string;
+        allowedBookingType?: string | null;
         branchId?: number;
         branchName?: string;
     }

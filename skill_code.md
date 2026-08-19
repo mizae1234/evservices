@@ -213,3 +213,29 @@ const isOverlap = (s1: string, e1: string, s2: string, e2: string) => {
 ### 7.14 Notification Redirection (การคลิกแจ้งเตือน)
 - เมื่อคลิกดูการแจ้งเตือนที่มีการเชื่อมโยงกับใบจองคิวซ่อม (BookingID) ระบบจะ Redirect ไปที่หน้าปฏิทิน `/service-center/bookings?date=YYYY-MM-DD` 
 - พร้อมทั้งสลับหน้าปฏิทิน (Calendar View) ให้ตรงกับวันที่มีการจองคิวนั้นโดยอัตโนมัติ
+
+### 7.15 Partner Role & Scoping (`CS_LINEMAN` และพาร์ทเนอร์ในอนาคต)
+- **Role Schema**: ตาราง `CM_Role` มีฟิลด์ `AllowedBookingType` (เช่น `RoleCode: 'CS_LINEMAN'`, `AllowedBookingType: 'LINEMAN'`)
+- **Scoping & Isolation**:
+  - เมื่อ Login ด้วยสิทธิ์พาร์ทเนอร์ ระบบจะจำกัดการสร้างและดูข้อมูลเฉพาะประเภทที่ตนเองมีสิทธิ์เท่านั้น
+  - คิวของประเภทอื่นบน Bay Calendar จะถูก Mask ข้อมูลแสดงเป็น `🔒 จองแล้ว (คิวอื่น)` เพื่อรักษาความปลอดภัยและความเป็นส่วนตัว
+  - Vehicle Lookup (`/api/vehicles/lookup`) จะฟิลเตอร์รถยนต์ตาม `ProjectType` ของพาร์ทเนอร์นั้นโดยอัตโนมัติ
+- **Permission Helpers**:
+  - ใช้ `isCSRole(role)` จาก `src/lib/permissions.ts` สำหรับตรวจสอบสิทธิ์กลุ่ม CS ทั้งหมด
+  - ใช้ `getAllowedBookingType(user)` สำหรับดึงสิทธิ์ประเภทการจองของพาร์ทเนอร์
+  - ซ่อนปุ่ม "ปรับระยะเวลาเอง" และการตั้งค่าของศูนย์บริการออกจาก CS ทุกประเภท
+
+### 7.16 Timezone Handling Standard (`getBangkokDateString`)
+- **กฎสำคัญ**: ห้ามใช้ `new Date().toISOString().split('T')[0]` เนื่องจากจะแปลงเป็น UTC ทำให้ระหว่างเวลา 00:00 - 07:00 น. วันที่จะกลายเป็นวันของเมื่อวาน
+- **วิธีปฏิบัติ**: ใช้ฟังก์ชันส่วนกลาง `getBangkokDateString()` จาก `src/lib/utils.ts` (ใช้ `Intl.DateTimeFormat` ระบุ `timeZone: 'Asia/Bangkok'`) ทุกจุดที่มีการดึงวันที่ปัจจุบันในรูปแบบ `YYYY-MM-DD`
+
+### 7.17 Real-time Reschedule Conflict Detection & Shared Utilities
+- **Shared Modules**:
+  - `src/lib/bay-booking-utils.ts`: รวมฟังก์ชันคำนวณเวลา `checkBayConflict`, `findAlternativeSlotsInBay`, `findAlternativeAvailableBays`, `isLunchBreakOverlap`
+  - `src/components/bookings/RescheduleConflictAlert.tsx`: คอมโพเนนต์แจ้งเตือนการทับซ้อนแบบ Real-time พร้อมปุ่มกดเลือกเวลาว่างที่แนะนำ และปุ่มกดสลับไปช่องซ่อมอื่นที่ว่างในคลิกเดียว
+- **Smart Bay Selector**: Dropdown เลือกช่องซ่อมจะแสดงป้ายสถานะ `(✅ ว่าง)` หรือ `(⚠️ มีคิวทับซ้อน)` ทันทีที่มีการเปลี่ยนวัน/เวลา
+
+### 7.18 Bookings List Pagination & Multi-column Sorting
+- **Pagination UI**: หน้ารายการจอง (`/service-center/bookings`) มีแถบ Pagination แสดงหน้าปัจจุบัน, ปุ่มก่อนหน้า/ถัดไป, และตัวเลือกแสดงหน้าละ `10 / 25 / 50 / 100` รายการ (ค่าเริ่มต้น 25)
+- **Deterministic Sorting**: API `/api/bookings` เรียงลำดับด้วย `[ { BookingDate: 'desc' }, { StartTime: 'asc' }, { BookingID: 'desc' } ]` ป้องกันข้อมูลตกหล่นหรือสุ่มลำดับในวันที่มีจำนวนคิวหนาแน่น
+

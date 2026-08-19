@@ -50,6 +50,8 @@ export const authOptions: NextAuthOptions = {
                     email: user.Email,
                     name: user.FullName,
                     role: user.Role.RoleCode as UserRole,
+                    roleName: user.Role.RoleName,
+                    allowedBookingType: user.Role.AllowedBookingType || undefined,
                     branchId: user.BranchID || undefined,
                     branchName: user.Branch?.BranchName || undefined,
                 };
@@ -61,6 +63,8 @@ export const authOptions: NextAuthOptions = {
             if (user) {
                 token.id = user.id;
                 token.role = (user as SessionUser).role;
+                token.roleName = (user as SessionUser).roleName;
+                token.allowedBookingType = (user as SessionUser).allowedBookingType;
                 token.branchId = (user as SessionUser).branchId;
                 token.branchName = (user as SessionUser).branchName;
             }
@@ -70,16 +74,21 @@ export const authOptions: NextAuthOptions = {
             if (session.user) {
                 (session.user as SessionUser).id = token.id as string;
                 (session.user as SessionUser).role = token.role as UserRole;
+                (session.user as SessionUser).roleName = token.roleName as string | undefined;
+                (session.user as SessionUser).allowedBookingType = token.allowedBookingType as string | undefined;
                 (session.user as SessionUser).branchId = token.branchId as number | undefined;
 
                 // ดึงข้อมูลล่าสุดจาก DB ทุกครั้ง
                 if (session.user.email) {
                     const freshUser = await prisma.cM_User.findUnique({
                         where: { Email: session.user.email },
-                        include: { Branch: true },
+                        include: { Branch: true, Role: true },
                     });
                     if (freshUser) {
                         session.user.name = freshUser.FullName;
+                        (session.user as SessionUser).role = freshUser.Role.RoleCode as UserRole;
+                        (session.user as SessionUser).roleName = freshUser.Role.RoleName;
+                        (session.user as SessionUser).allowedBookingType = freshUser.Role.AllowedBookingType || undefined;
                         (session.user as SessionUser).branchId = freshUser.BranchID || undefined;
                         (session.user as SessionUser).branchName = freshUser.Branch?.BranchName || undefined;
                     }
