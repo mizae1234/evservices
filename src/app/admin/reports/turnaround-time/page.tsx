@@ -16,7 +16,7 @@ import {
     LoadingPage,
 } from '@/components/ui';
 import { Header } from '@/components/layouts';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime, getBangkokDateString } from '@/lib/utils';
 import { Search, Download, FileSpreadsheet, Clock, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface TATClaim {
@@ -54,8 +54,8 @@ function TATReportsContent() {
         const start = new Date();
         start.setDate(start.getDate() - 30); // Default to last 30 days
         return {
-            startDate: start.toISOString().split('T')[0],
-            endDate: end.toISOString().split('T')[0],
+            startDate: getBangkokDateString(start),
+            endDate: getBangkokDateString(end),
         };
     };
 
@@ -77,8 +77,8 @@ function TATReportsContent() {
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
-            if (searchParams.get('startDate')) params.set('startDate', searchParams.get('startDate')!);
-            if (searchParams.get('endDate')) params.set('endDate', searchParams.get('endDate')!);
+            if (activeStartDate) params.set('startDate', activeStartDate);
+            if (activeEndDate) params.set('endDate', activeEndDate);
             
             const res = await fetch(`/api/reports/turnaround-time?${params.toString()}`);
             const result = await res.json();

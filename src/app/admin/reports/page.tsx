@@ -92,8 +92,10 @@ function AdminReportsContent() {
                 params.set('status', '2');
             }
 
-            if (searchParams.get('startDate')) params.set('startDate', searchParams.get('startDate')!);
-            if (searchParams.get('endDate')) params.set('endDate', searchParams.get('endDate')!);
+            const startDateVal = searchParams.get('startDate') || defaults.startDate;
+            const endDateVal = searchParams.get('endDate') || defaults.endDate;
+            if (startDateVal) params.set('startDate', startDateVal);
+            if (endDateVal) params.set('endDate', endDateVal);
             if (searchVal) params.set('search', searchVal);
 
             const res = await fetch(`/api/claims?${params.toString()}`);
