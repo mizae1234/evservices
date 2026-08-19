@@ -17,7 +17,7 @@ import {
     LoadingPage,
 } from '@/components/ui';
 import { Header } from '@/components/layouts';
-import { formatDate, formatCurrency } from '@/lib/utils';
+import { formatDate, formatCurrency, getBangkokDateString } from '@/lib/utils';
 import { Claim, PaginatedResponse, CLAIM_STATUS } from '@/types';
 import { Search, Download, FileSpreadsheet, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -56,8 +56,8 @@ function AdminReportsContent() {
         const start = new Date();
         start.setDate(start.getDate() - 7);
         return {
-            startDate: start.toISOString().split('T')[0],
-            endDate: end.toISOString().split('T')[0],
+            startDate: getBangkokDateString(start),
+            endDate: getBangkokDateString(end),
         };
     };
 
@@ -77,7 +77,7 @@ function AdminReportsContent() {
         setIsLoading(true);
         try {
             const params = new URLSearchParams();
-            params.set('pageSize', '1000'); // Get all for report
+            params.set('pageSize', 'all'); // Get all for report via safe chunking
 
             const statusVal = searchParams.get('status');
             const searchVal = searchParams.get('search');

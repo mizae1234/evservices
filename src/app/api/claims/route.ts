@@ -78,8 +78,49 @@ export async function GET(request: NextRequest) {
         // Get total count
         const total = await prisma.cM_DocClaim.count({ where });
 
+        const isAll = searchParams.get('pageSize') === 'all' || searchParams.get('all') === 'true';
+        let claims: any[] = [];
+
+        if (isAll) {
+            // Fetch claims in chunks of 500 to avoid SQL Server 2100 parameter limit on `include` queries
+            const BATCH_SIZE = 500;
+            let hasMore = true;
+            let skip = 0;
+
+            while (hasMore) {
+                const batch = await prisma.cM_DocClaim.findMany({
+                    where,
+                    include: {
+                        Branch: true,
+                        Creator: {
+                            select: { FullName: true },
+                        },
+                    },
+                    orderBy: { ClaimDate: 'desc' },
+                    skip: skip,
+                    take: BATCH_SIZE,
+                });
+
+                claims = claims.concat(batch);
+                if (batch.length < BATCH_SIZE) {
+                    hasMore = false;
+                } else {
+                    skip += BATCH_SIZE;
+                }
+            }
+
+            return NextResponse.json({
+                success: true,
+                data: claims,
+                total: claims.length,
+                page: 1,
+                pageSize: claims.length,
+                totalPages: 1,
+            });
+        }
+
         // Get claims with pagination
-        const claims = await prisma.cM_DocClaim.findMany({
+        claims = await prisma.cM_DocClaim.findMany({
             where,
             include: {
                 Branch: true,
