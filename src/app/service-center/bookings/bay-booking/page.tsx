@@ -434,6 +434,7 @@ function BayBookingPageInner() {
         if (!effectiveDuration || effectiveDuration <= 0) { setError('กรุณาระบุระยะเวลา'); return; }
         if (!customerName.trim()) { setError('กรุณาระบุชื่อลูกค้า'); return; }
         if (!customerPhone.trim()) { setError('กรุณาระบุเบอร์โทรลูกค้า'); return; }
+        if (customerPhone.trim().length !== 10) { setError('เบอร์โทรลูกค้าต้องมี 10 หลัก'); return; }
         if (selectedST?.RequiresMileage && !lastMileage.trim()) { setError('กรุณาระบุเลขไมล์ล่าสุด'); return; }
         if (!carRegister.trim()) { setError('กรุณาระบุทะเบียนรถ'); return; }
         if (!carModel.trim()) { setError('กรุณาระบุรุ่นรถ'); return; }
@@ -696,13 +697,18 @@ function BayBookingPageInner() {
                                             )}
                                         </div>
 
-                                        <Input
-                                            label="เบอร์โทรลูกค้า *"
-                                            placeholder="0xxxxxxxxx"
-                                            value={customerPhone}
-                                            onChange={(e) => setCustomerPhone(e.target.value.replace(/[^0-9]/g, ''))}
-                                            maxLength={10}
-                                        />
+                                        <div>
+                                            <Input
+                                                label="เบอร์โทรลูกค้า *"
+                                                placeholder="0xxxxxxxxx"
+                                                value={customerPhone}
+                                                onChange={(e) => setCustomerPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                                                maxLength={10}
+                                            />
+                                            <p className={`mt-1 text-xs text-right ${customerPhone.length === 10 ? 'text-green-600' : 'text-gray-400'}`}>
+                                                {customerPhone.length}/10
+                                            </p>
+                                        </div>
                                         <Input
                                             label="ชื่อลูกค้า *"
                                             placeholder="ชื่อ-นามสกุล"
