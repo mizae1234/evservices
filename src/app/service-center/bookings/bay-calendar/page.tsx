@@ -675,20 +675,24 @@ function BayCalendarPageInner() {
                 async (reason) => {
                     try {
                         const finalReason = (reason || '').trim() || 'งดให้บริการช่องซ่อมชั่วคราว';
+                        const blockOpenTime = operatingHours.openTime || '08:30';
+                        const blockCloseTime = operatingHours.closeTime || '17:30';
+                        const blockDuration = Math.max(0, timeToMinutes(blockCloseTime) - timeToMinutes(blockOpenTime));
+
                         const res = await fetch('/api/bookings', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 BookingDate: selectedDate,
-                                StartTime: '08:00',
-                                EndTime: '17:30',
+                                StartTime: blockOpenTime,
+                                EndTime: blockCloseTime,
                                 CustomerName: '[ปิดช่องซ่อมชั่วคราว]',
                                 CarRegister: 'BLOCK',
                                 CarModel: finalReason,
                                 BranchID: selectedBranch,
                                 BayID: bayId,
                                 ServiceTypeID: null,
-                                DurationMinutes: 570,
+                                DurationMinutes: blockDuration || 540,
                                 LastMileage: 0,
                                 ClaimDetail: finalReason,
                             }),

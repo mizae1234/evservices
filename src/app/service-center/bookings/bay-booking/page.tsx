@@ -122,6 +122,7 @@ function BayBookingPageInner() {
 
     // Bays availability for overlap checking
     const [baysData, setBaysData] = useState<any[]>([]);
+    const [operatingHours, setOperatingHours] = useState({ openTime: '08:30', closeTime: '17:30' });
 
     // Computed
     const effectiveDuration = useCustomDuration ? (parseInt(customDuration) || 0) : duration;
@@ -170,8 +171,8 @@ function BayBookingPageInner() {
     });
 
     // Find other free slots in the current bay
-    const openMin = timeToMinutes('08:30');
-    const closeMin = timeToMinutes('17:30');
+    const openMin = timeToMinutes(operatingHours.openTime);
+    const closeMin = timeToMinutes(operatingHours.closeTime);
     const alternativeSlots: { start: string; end: string }[] = [];
     
     if (effectiveDuration > 0) {
@@ -224,7 +225,12 @@ function BayBookingPageInner() {
                 if (stData.success) setServiceTypes(stData.data);
                 if (frData.success) setFlatRates(frData.data);
                 if (cmData.success) setCarModels(cmData.data);
-                if (baData.success) setBaysData(baData.data || []);
+                if (baData.success) {
+                    setBaysData(baData.data || []);
+                    if (baData.operatingHours) {
+                        setOperatingHours(baData.operatingHours);
+                    }
+                }
                 if (brData.success && Array.isArray(brData.data)) {
                     const found = brData.data.find((b: any) => b.BranchID.toString() === branchId.toString());
                     if (found) setBranchName(found.BranchName);

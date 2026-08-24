@@ -292,24 +292,31 @@ export async function POST(request: NextRequest) {
                 return NextResponse.json({ success: false, error: 'Bay ไม่ถูกต้องหรือไม่เปิดให้บริการ' }, { status: 400 });
             }
 
-            // Validate EndTime is within operating hours
+            // Validate StartTime and EndTime are within branch operating hours
             const timeToMinutes = (t: string) => {
                 const [hh, mm] = t.split(':').map(Number);
                 return hh * 60 + mm;
             };
 
-            const slotConfigs = await prisma.cM_BranchSlotConfig.findMany({
-                where: { BranchID: branchId, IsActive: true },
-                orderBy: { StartTime: 'asc' },
+            const branchInfo = await prisma.cM_MsServiceBranch.findUnique({
+                where: { BranchID: branchId },
+                select: { OpenTime: true, CloseTime: true },
             });
 
-            let closeTime = '17:30';
-            if (slotConfigs.length > 0) {
-                closeTime = slotConfigs[slotConfigs.length - 1].EndTime;
-            }
+            const openTime = branchInfo?.OpenTime || '08:30';
+            const closeTime = branchInfo?.CloseTime || '17:30';
 
+            const startMinutes = timeToMinutes(StartTime);
+            const openMinutes = timeToMinutes(openTime);
             const endMinutes = timeToMinutes(EndTime);
             const closeMinutes = timeToMinutes(closeTime);
+
+            if (startMinutes < openMinutes) {
+                return NextResponse.json({
+                    success: false,
+                    error: `เวลาเริ่ม (${StartTime}) ก่อนเวลาเปิดทำการ (${openTime})`,
+                }, { status: 400 });
+            }
 
             if (endMinutes > closeMinutes) {
                 return NextResponse.json({
@@ -321,7 +328,6 @@ export async function POST(request: NextRequest) {
             // Check lunch break overlap (12:00 - 13:00)
             // Allow bookings that span across lunch (e.g. 11:30 start, end 14:30 — the frontend already adds 1hr for lunch)
             // Block only if the booking starts during lunch hour
-            const startMinutes = timeToMinutes(StartTime);
             const lunchStart = 12 * 60; // 12:00
             const lunchEnd = 13 * 60;   // 13:00
             if (startMinutes >= lunchStart && startMinutes < lunchEnd) {

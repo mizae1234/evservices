@@ -193,13 +193,27 @@ export async function PUT(
 
         // Duration Extension / Adjustment logic (when EndTime is passed without BookingDate)
         if (!BookingDate && EndTime && EndTime !== booking.EndTime) {
-            const oldEndTime = booking.EndTime;
-            updateData.EndTime = EndTime;
-            
+            const branchInfo = await prisma.cM_MsServiceBranch.findUnique({
+                where: { BranchID: booking.BranchID },
+                select: { CloseTime: true },
+            });
+            const closeTime = branchInfo?.CloseTime || '17:30';
+
             const timeToM = (t: string) => {
                 const [h, m] = t.split(':').map(Number);
                 return h * 60 + m;
             };
+
+            if (timeToM(EndTime) > timeToM(closeTime)) {
+                return NextResponse.json({
+                    success: false,
+                    error: `เวลาจบ (${EndTime}) เกินเวลาปิดทำการ (${closeTime})`,
+                }, { status: 400 });
+            }
+
+            const oldEndTime = booking.EndTime;
+            updateData.EndTime = EndTime;
+            
             const startMins = timeToM(booking.StartTime);
             let endMins = timeToM(EndTime);
             if (endMins < startMins) endMins += 24 * 60;
@@ -327,9 +341,32 @@ export async function PUT(
                     return timeToM(s1) < timeToM(e2) && timeToM(s2) < timeToM(e1);
                 };
 
-                // Check lunch break overlap (12:00 - 13:00)
+                const branchInfo = await prisma.cM_MsServiceBranch.findUnique({
+                    where: { BranchID: booking.BranchID },
+                    select: { OpenTime: true, CloseTime: true },
+                });
+                const openTime = branchInfo?.OpenTime || '08:30';
+                const closeTime = branchInfo?.CloseTime || '17:30';
+                const openMin = timeToM(openTime);
+                const closeMin = timeToM(closeTime);
                 const startMin = timeToM(StartTime);
                 const endMin = timeToM(EndTime);
+
+                if (startMin < openMin) {
+                    return NextResponse.json({
+                        success: false,
+                        error: `เวลาเริ่ม (${StartTime}) ก่อนเวลาเปิดทำการ (${openTime})`,
+                    }, { status: 400 });
+                }
+
+                if (endMin > closeMin) {
+                    return NextResponse.json({
+                        success: false,
+                        error: `เวลาจบ (${EndTime}) เกินเวลาปิดทำการ (${closeTime})`,
+                    }, { status: 400 });
+                }
+
+                // Check lunch break overlap (12:00 - 13:00)
                 const lunchStart = 12 * 60; // 12:00
                 const lunchEnd = 13 * 60;   // 13:00
 
