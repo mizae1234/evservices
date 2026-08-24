@@ -354,6 +354,9 @@ export default function BookingSettingsPage() {
                                         <option value="17:30">17:30 น.</option>
                                         <option value="18:00">18:00 น.</option>
                                         <option value="18:30">18:30 น.</option>
+                                        <option value="19:00">19:00 น.</option>
+                                        <option value="19:30">19:30 น.</option>
+                                        <option value="20:00">20:00 น.</option>
                                     </select>
                                 </div>
                             </div>
