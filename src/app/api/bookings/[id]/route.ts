@@ -172,7 +172,16 @@ export async function PUT(
 
         // Details updates
         if (CustomerName !== undefined) updateData.CustomerName = CustomerName;
-        if (CustomerPhone !== undefined) updateData.CustomerPhone = CustomerPhone || null;
+        if (CustomerPhone !== undefined) {
+            const cleanPhone = (CustomerPhone || '').toString().replace(/[^0-9]/g, '');
+            const isBlock = (CustomerName !== undefined ? CustomerName : booking.CustomerName) === '[ปิดช่องซ่อมชั่วคราว]';
+            if (!isBlock && CustomerPhone) {
+                if (cleanPhone.length !== 10) {
+                    return NextResponse.json({ success: false, error: 'เบอร์โทรลูกค้าต้องเป็นตัวเลข 10 หลัก' }, { status: 400 });
+                }
+            }
+            updateData.CustomerPhone = cleanPhone || null;
+        }
         if (CarRegister !== undefined) updateData.CarRegister = CarRegister.replace(/\s/g, '');
         if (CarModel !== undefined) updateData.CarModel = CarModel;
         if (VinNo !== undefined) updateData.VinNo = VinNo || null;

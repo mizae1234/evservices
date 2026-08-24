@@ -63,6 +63,7 @@ function NewBookingPageInner() {
         StartTime: paramStartTime,
         EndTime: paramEndTime,
         CustomerName: '',
+        CustomerPhone: '',
         CarRegister: '',
         CarModel: '',
         VinNo: '',
@@ -310,6 +311,16 @@ function NewBookingPageInner() {
             !formData.BranchID
         ) {
             setError('กรุณากรอกข้อมูลหลักให้ครบถ้วน');
+            return;
+        }
+
+        const cleanPhone = (formData.CustomerPhone || '').replace(/[^0-9]/g, '');
+        if (!cleanPhone) {
+            setError('กรุณาระบุเบอร์โทรลูกค้า');
+            return;
+        }
+        if (cleanPhone.length !== 10) {
+            setError('เบอร์โทรลูกค้าต้องมี 10 หลัก');
             return;
         }
 
@@ -685,6 +696,21 @@ function NewBookingPageInner() {
                                     onChange={handleChange}
                                     required
                                 />
+
+                                <div>
+                                    <Input
+                                        label="เบอร์โทรลูกค้า *"
+                                        name="CustomerPhone"
+                                        placeholder="0xxxxxxxxx"
+                                        value={formData.CustomerPhone}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, CustomerPhone: e.target.value.replace(/[^0-9]/g, '') }))}
+                                        maxLength={10}
+                                        required
+                                    />
+                                    <p className={`mt-1 text-xs text-right ${formData.CustomerPhone.length === 10 ? 'text-green-600' : 'text-gray-400'}`}>
+                                        {formData.CustomerPhone.length}/10
+                                    </p>
+                                </div>
 
                                 <Select
                                     label="รุ่นรถยนต์ (Car Model) *"

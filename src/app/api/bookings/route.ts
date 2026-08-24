@@ -182,6 +182,17 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน' }, { status: 400 });
         }
 
+        const isBlockBooking = CustomerName === '[ปิดช่องซ่อมชั่วคราว]';
+        const cleanPhone = (CustomerPhone || '').toString().replace(/[^0-9]/g, '');
+        if (!isBlockBooking) {
+            if (!cleanPhone) {
+                return NextResponse.json({ success: false, error: 'กรุณาระบุเบอร์โทรลูกค้า' }, { status: 400 });
+            }
+            if (cleanPhone.length !== 10) {
+                return NextResponse.json({ success: false, error: 'เบอร์โทรลูกค้าต้องเป็นตัวเลข 10 หลัก' }, { status: 400 });
+            }
+        }
+
         // Check if date is in the past
         const todayStr = getBangkokDateString();
         if (BookingDate < todayStr) {
@@ -395,7 +406,7 @@ export async function POST(request: NextRequest) {
                     StartTime,
                     EndTime,
                     CustomerName,
-                    CustomerPhone: CustomerPhone || null,
+                    CustomerPhone: cleanPhone || null,
                     CarModel,
                     CarRegister: CarRegister.replace(/\s/g, ''),
                     VinNo: VinNo || null,
@@ -546,7 +557,7 @@ export async function POST(request: NextRequest) {
                 StartTime,
                 EndTime,
                 CustomerName,
-                CustomerPhone: CustomerPhone || null,
+                CustomerPhone: cleanPhone || null,
                 CarModel,
                 CarRegister: CarRegister.replace(/\s/g, ''),
                 VinNo: VinNo || null,
