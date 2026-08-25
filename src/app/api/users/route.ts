@@ -29,16 +29,35 @@ export async function GET(request: NextRequest) {
 
         const searchParams = request.nextUrl.searchParams;
         const search = searchParams.get('search') || '';
+        const roleId = searchParams.get('roleId');
+        const branchId = searchParams.get('branchId');
+        const isActive = searchParams.get('isActive');
+        const pageSizeParam = searchParams.get('pageSize') || '20';
+        const isAll = pageSizeParam === 'all' || pageSizeParam === '0';
         const page = parseInt(searchParams.get('page') || '1');
-        const pageSize = parseInt(searchParams.get('pageSize') || '20');
-        const skip = (page - 1) * pageSize;
+        const pageSize = isAll ? 0 : parseInt(pageSizeParam);
+        const skip = isAll ? undefined : (page - 1) * pageSize;
+        const take = isAll ? undefined : pageSize;
 
         const where: Record<string, unknown> = {};
         if (search) {
             where.OR = [
                 { Email: { contains: search } },
                 { FullName: { contains: search } },
+                { Phone: { contains: search } },
             ];
+        }
+
+        if (roleId && roleId !== 'all') {
+            where.RoleID = parseInt(roleId);
+        }
+
+        if (branchId && branchId !== 'all') {
+            where.BranchID = parseInt(branchId);
+        }
+
+        if (isActive && isActive !== 'all') {
+            where.IsActive = isActive === 'true';
         }
 
         const [users, total] = await Promise.all([
@@ -50,7 +69,7 @@ export async function GET(request: NextRequest) {
                 },
                 orderBy: { CreateDate: 'desc' },
                 skip,
-                take: pageSize,
+                take,
             }),
             prisma.cM_User.count({ where }),
         ]);
@@ -76,9 +95,9 @@ export async function GET(request: NextRequest) {
                 } : null,
             })),
             total,
-            page,
-            pageSize,
-            totalPages: Math.ceil(total / pageSize),
+            page: isAll ? 1 : page,
+            pageSize: isAll ? total : pageSize,
+            totalPages: isAll ? 1 : Math.ceil(total / (pageSize || 1)),
         });
     } catch (error) {
         console.error('Error fetching users:', error);
