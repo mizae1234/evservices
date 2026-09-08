@@ -77,11 +77,11 @@ export function generateClaimNo(lastSequence: number = 0): string {
  * @returns Object with year and sequence, or null if invalid
  */
 export function parseClaimNo(claimNo: string): { year: number; sequence: number } | null {
-    const match = claimNo.match(/^CLM-(\d{4})-(\d{4})$/);
+    const match = claimNo.match(/^CLM-(\d{4})-(\d+)$/);
     if (!match) return null;
     return {
-        year: parseInt(match[1]),
-        sequence: parseInt(match[2]),
+        year: parseInt(match[1], 10),
+        sequence: parseInt(match[2], 10),
     };
 }
 

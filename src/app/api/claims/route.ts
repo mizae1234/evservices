@@ -189,7 +189,14 @@ export async function POST(request: NextRequest) {
             where: { Email: session.user.email },
         });
 
-        if (!user?.BranchID && session.user.role === 'SERVICE_CENTER') {
+        if (!user) {
+            return NextResponse.json(
+                { success: false, error: 'ไม่พบข้อมูลผู้ใช้งาน' },
+                { status: 401 }
+            );
+        }
+
+        if (!user.BranchID && session.user.role === 'SERVICE_CENTER') {
             return NextResponse.json(
                 { success: false, error: 'ไม่พบข้อมูลสาขาของผู้ใช้' },
                 { status: 400 }
@@ -200,31 +207,43 @@ export async function POST(request: NextRequest) {
         const currentYear = new Date().getFullYear();
         const yearPrefix = `CLM-${currentYear}-`;
 
-        // Find the last claim number for this year
-        const lastClaim = await prisma.cM_DocClaim.findFirst({
+        // Find recent claims for this year
+        // We order by ClaimID desc because alphabetical sorting of ClaimNo fails once sequence reaches 5 digits (e.g. 'CLM-2026-9999' > 'CLM-2026-10000')
+        const recentClaims = await prisma.cM_DocClaim.findMany({
             where: {
                 ClaimNo: {
                     startsWith: yearPrefix,
                 },
             },
             orderBy: {
-                ClaimNo: 'desc',
+                ClaimID: 'desc',
             },
+            take: 20,
             select: {
                 ClaimNo: true,
             },
         });
 
-        // Extract last sequence number
-        let lastSequence = 0;
-        if (lastClaim?.ClaimNo) {
-            const match = lastClaim.ClaimNo.match(/^CLM-\d{4}-(\d{4})$/);
+        // Extract maximum sequence number from recent claims
+        let maxSequence = 0;
+        for (const c of recentClaims) {
+            const match = c.ClaimNo.match(/^CLM-\d{4}-(\d+)$/);
             if (match) {
-                lastSequence = parseInt(match[1]);
+                const seq = parseInt(match[1], 10);
+                if (seq > maxSequence) {
+                    maxSequence = seq;
+                }
             }
         }
 
-        const claimNo = generateClaimNo(lastSequence);
+        let claimNo = generateClaimNo(maxSequence);
+
+        // Ensure claimNo is strictly unique (in case of race conditions or gaps)
+        let seq = maxSequence + 1;
+        while (await prisma.cM_DocClaim.findUnique({ where: { ClaimNo: claimNo }, select: { ClaimID: true } })) {
+            seq++;
+            claimNo = `CLM-${currentYear}-${seq.toString().padStart(4, '0')}`;
+        }
 
         // Create claim
         const claim = await prisma.cM_DocClaim.create({
@@ -243,8 +262,8 @@ export async function POST(request: NextRequest) {
                 LastMileage: parseInt(LastMileage) || 0,
                 ServiceDate: ServiceDate ? new Date(ServiceDate) : new Date(),
                 Status: submitNow ? CLAIM_STATUS.PENDING : CLAIM_STATUS.DRAFT,
-                BranchID: ((session.user.role === 'ADMIN' || isCSRole(session.user.role)) && body.BranchID) ? parseInt(body.BranchID) : (user?.BranchID || 1),
-                CreateBy: user!.UserID,
+                BranchID: ((session.user.role === 'ADMIN' || isCSRole(session.user.role)) && body.BranchID) ? parseInt(body.BranchID) : (user.BranchID || 1),
+                CreateBy: user.UserID,
             },
         });
 
@@ -256,7 +275,7 @@ export async function POST(request: NextRequest) {
                 Description: 'สร้างใบงานใหม่',
                 OldStatus: null,
                 NewStatus: claim.Status,
-                ActionBy: user!.UserID,
+                ActionBy: user.UserID,
             },
         });
 
@@ -269,7 +288,7 @@ export async function POST(request: NextRequest) {
                     Description: 'ส่งใบงานเพื่ออนุมัติ',
                     OldStatus: CLAIM_STATUS.DRAFT,
                     NewStatus: CLAIM_STATUS.PENDING,
-                    ActionBy: user!.UserID,
+                    ActionBy: user.UserID,
                 },
             });
         }
@@ -282,7 +301,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         console.error('Error creating claim:', error);
         return NextResponse.json(
-            { success: false, error: 'Failed to create claim' },
+            { success: false, error: error instanceof Error ? error.message : 'Failed to create claim' },
             { status: 500 }
         );
     }
