@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Header } from '@/components/layouts';
@@ -9,7 +9,6 @@ import {
     Button, Input, Select, LoadingPage,
 } from '@/components/ui';
 import { ArrowLeft, Clock, Check, Loader2, Plus, Trash2, GripVertical, Save, Wrench, ToggleLeft, ToggleRight, Globe, MapPin } from 'lucide-react';
-import { CAR_MODEL_FLAT_RATES } from '@/lib/flat-rates-data';
 import { MileageWarning } from '@/components/bookings/MileageWarning';
 import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 import { getBangkokDateString } from '@/lib/utils';
@@ -244,76 +243,46 @@ function BayBookingPageInner() {
         loadData();
     }, [branchId, date]);
 
-    // Auto-fill duration from Flat Rate
-
-    // Helper to calculate custom duration
-    const getCalculatedDuration = (stId: number, mileageValue: string | null) => {
-        if (!carModel) return null;
-        const cm = carModels.find(m => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName) === carModel);
-        if (!cm) return null;
-        
-        let modelKey = cm.ModelCode;
-        if (cm.ModelID >= 11 && cm.ModelID <= 12) modelKey = 'Y PLUS TAXI'; // Y490, Y410
-        else if (cm.ModelID === 13) modelKey = 'ES TAXI'; // ES
-        else if (modelKey.startsWith('Y')) modelKey = 'Y PLUS'; // Handles Y490-RETAIL, Y410-RETAIL, etc.
-        else if (modelKey === 'ES-RETAIL') modelKey = 'ES'; // Handles ES-RETAIL
-        else if (modelKey === 'HT') modelKey = 'HYPTEC HT';
-        else if (modelKey === 'M8-PHEV') modelKey = 'M8 PHEV';
-        
-        const ratesForModel = CAR_MODEL_FLAT_RATES[modelKey as keyof typeof CAR_MODEL_FLAT_RATES];
-        if (ratesForModel && mileageValue) {
-            const hr = (ratesForModel as any)[mileageValue];
-            if (hr) return hr * 60; // convert to minutes
+    // Flat rates that apply to the selected service type, narrowed to the selected
+    // car model when that model has its own rates. The mileage buttons and the
+    // auto-filled duration both read from this list, so the duration printed on a
+    // button always matches the calculated time.
+    const lastMileageNum = parseInt(lastMileage) || 0;
+    const applicableMileageRates = useMemo(() => {
+        if (!selectedServiceType) return [] as FlatRate[];
+        const stId = parseInt(selectedServiceType);
+        const cm = carModel ? carModels.find(m => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName) === carModel) : null;
+        let rates = flatRates.filter(fr => fr.ServiceTypeID === stId && fr.Mileage);
+        if (cm) {
+            const modelRates = rates.filter(fr => fr.CarModelID === cm.ModelID);
+            if (modelRates.length > 0) rates = modelRates;
         }
-        return null;
-    };
+        return rates;
+    }, [selectedServiceType, flatRates, carModel, carModels]);
 
+    // Auto-fill duration from Flat Rate
     useEffect(() => {
         if (!selectedServiceType) { setDuration(0); return; }
         const stId = parseInt(selectedServiceType);
 
         if (selectedST?.RequiresMileage && selectedMileage) {
             const mileageId = parseInt(selectedMileage);
-            const rate = flatRates.find(fr => fr.ServiceTypeID === stId && fr.MileageID === mileageId);
-            
-            // Override with CAR_MODEL_FLAT_RATES if applicable
-            let finalDuration = rate ? rate.DurationMinutes : 0;
-            if (rate && rate.Mileage) {
-                const custom = getCalculatedDuration(stId, String(rate.Mileage.Value));
-                if (custom) {
-                    finalDuration = custom;
-                    // If ServiceType is "เช็คระยะ + ซ่อม" (ID = 2), add 60 minutes
-                    if (stId === 2) {
-                        finalDuration += 60;
-                    }
-                }
-            }
-            
-            if (finalDuration > 0) { setDuration(finalDuration); setUseCustomDuration(false); }
+            const rate = applicableMileageRates.find(fr => fr.MileageID === mileageId);
+            if (rate && rate.DurationMinutes > 0) { setDuration(rate.DurationMinutes); setUseCustomDuration(false); }
             else { setDuration(0); }
         } else if (selectedST && !selectedST.RequiresMileage) {
             const rate = flatRates.find(fr => fr.ServiceTypeID === stId && fr.MileageID === null);
             if (rate) { setDuration(rate.DurationMinutes); setUseCustomDuration(false); }
             else { setDuration(120); setUseCustomDuration(false); }
         }
-    }, [selectedServiceType, selectedMileage, flatRates, selectedST, carModel, carModels]);
+    }, [selectedServiceType, selectedMileage, flatRates, selectedST, applicableMileageRates]);
 
-    // Mileage options for the selected service type, filtered by selected car model
-    const lastMileageNum = parseInt(lastMileage) || 0;
+    // Mileage options for the selected service type
     const relevantMileages = selectedST?.RequiresMileage
         ? (() => {
-            const stId = parseInt(selectedServiceType);
-            // Find selected car model ID
-            const cm = carModel ? carModels.find(m => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName) === carModel) : null;
-            let rates = flatRates.filter(fr => fr.ServiceTypeID === stId && fr.Mileage);
-            // Filter by car model if selected
-            if (cm) {
-                const modelRates = rates.filter(fr => fr.CarModelID === cm.ModelID);
-                if (modelRates.length > 0) rates = modelRates;
-            }
             // Deduplicate by MileageID
             const seen = new Map<string, { value: string; label: string; duration: number; disabled: boolean }>();
-            for (const fr of rates) {
+            for (const fr of applicableMileageRates) {
                 const key = fr.MileageID!.toString();
                 if (seen.has(key)) continue;
                 const disabled = lastMileageNum > 0 && fr.Mileage!.Value <= lastMileageNum;
