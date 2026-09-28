@@ -296,7 +296,7 @@ export function Sidebar() {
                     )}
                 </div>
                 <button
-                    onClick={() => signOut({ callbackUrl: '/login' })}
+                    onClick={() => signOut({ callbackUrl: '/auth/login' })}
                     className="flex items-center gap-3 w-full px-3 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 rounded-lg transition-colors"
                 >
                     <LogOut className="w-5 h-5" />

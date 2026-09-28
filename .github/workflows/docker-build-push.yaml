@@ -29,6 +29,10 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.sha }}
+          # NEXT_PUBLIC_* ต้องมีตอน build เพราะถูกฝังลง JS bundle
+          # ไม่ใช่ความลับ (ผู้ใช้เห็นได้ในหน้าเว็บอยู่แล้ว) แต่เก็บเป็น secret ไว้เปลี่ยนค่าง่าย
+          build-args: |
+            NEXT_PUBLIC_LINE_LIFF_ID=${{ secrets.NEXT_PUBLIC_LINE_LIFF_ID }}
 
   deploy:
     needs: build

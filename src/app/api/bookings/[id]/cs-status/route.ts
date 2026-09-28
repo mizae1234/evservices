@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { notifyBookingEvent } from '@/lib/booking-notify';
 
 export async function POST(
     request: NextRequest,
@@ -32,7 +33,7 @@ export async function POST(
         }
 
         // Update CSStatus
-        await prisma.cM_Booking.update({
+        const updatedBooking = await prisma.cM_Booking.update({
             where: { BookingID: bookingId },
             data: { CSStatus: csStatus }
         });
@@ -48,6 +49,21 @@ export async function POST(
                 }
             });
         }
+
+        // Notify (in-app + LINE OA)
+        const CS_STATUS_LABEL: Record<string, string> = {
+            PENDING: 'รอติดต่อลูกค้า',
+            CONFIRMED: 'ลูกค้ายืนยันแล้ว',
+            FOLLOW_UP: 'ติดตามผล',
+            NO_ANSWER: 'โทรไม่รับสาย',
+        };
+        await notifyBookingEvent({
+            event: 'CS_STATUS',
+            booking: updatedBooking,
+            actorName: session.user.name || session.user.email,
+            extraRows: [{ label: 'สถานะติดต่อ', value: CS_STATUS_LABEL[csStatus] || csStatus }],
+            footerNote: note && note.trim() !== '' ? `หมายเหตุ: ${note.trim()}` : undefined,
+        });
 
         return NextResponse.json({ success: true, message: 'CS Status updated successfully' });
     } catch (error) {

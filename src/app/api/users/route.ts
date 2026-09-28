@@ -66,6 +66,15 @@ export async function GET(request: NextRequest) {
                 include: {
                     Role: true,
                     Branch: true,
+                    LineLink: {
+                        select: {
+                            DisplayName: true,
+                            PictureUrl: true,
+                            IsActive: true,
+                            NotifyEnabled: true,
+                            LinkedDate: true,
+                        },
+                    },
                 },
                 orderBy: { CreateDate: 'desc' },
                 skip,
@@ -92,6 +101,14 @@ export async function GET(request: NextRequest) {
                 Branch: u.Branch ? {
                     BranchID: u.Branch.BranchID,
                     BranchName: u.Branch.BranchName,
+                } : null,
+                // ไม่ส่ง LineUserID ออกไปฝั่ง client — หน้าเว็บไม่ได้ใช้ และเป็นตัวระบุตัวบุคคล
+                LineLink: u.LineLink ? {
+                    DisplayName: u.LineLink.DisplayName,
+                    PictureUrl: u.LineLink.PictureUrl,
+                    IsActive: u.LineLink.IsActive,
+                    NotifyEnabled: u.LineLink.NotifyEnabled,
+                    LinkedDate: u.LineLink.LinkedDate,
                 } : null,
             })),
             total,

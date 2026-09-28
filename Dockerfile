@@ -33,6 +33,11 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
+# ค่า NEXT_PUBLIC_* ถูกฝังลง JS bundle ตอน build ไม่ใช่อ่านตอน runtime
+# ถ้าไม่ส่งเข้ามาตรงนี้ หน้าเชื่อมต่อบัญชี LINE จะได้ค่าว่างถาวร แก้ทีหลังไม่ได้
+ARG NEXT_PUBLIC_LINE_LIFF_ID=""
+ENV NEXT_PUBLIC_LINE_LIFF_ID=$NEXT_PUBLIC_LINE_LIFF_ID
+
 # Build the application
 RUN npm run build
 

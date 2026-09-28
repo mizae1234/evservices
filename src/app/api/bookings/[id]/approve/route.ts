@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { notifyBookingEvent } from '@/lib/booking-notify';
 
 export async function POST(
     request: NextRequest,
@@ -59,6 +60,13 @@ export async function POST(
                 Content: `Booking approved by ${session.user.name}`,
                 CreateBy: session.user.name || session.user.email || 'System',
             },
+        });
+
+        // Notify (in-app + LINE OA)
+        await notifyBookingEvent({
+            event: 'APPROVED',
+            booking: updatedBooking,
+            actorName: session.user.name || session.user.email,
         });
 
         return NextResponse.json({

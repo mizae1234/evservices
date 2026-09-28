@@ -145,6 +145,27 @@ function BookingsPageContent() {
         setIsDetailModalOpen(true);
     };
 
+    // Deep link จากการแจ้งเตือน LINE: /service-center/bookings?bookingId=123&date=YYYY-MM-DD
+    // เปิด modal รายละเอียดคิวนั้นให้ทันที (modal ดึงข้อมูลเองด้วย BookingID จึงไม่ขึ้นกับ filter)
+    const detailIdParam = searchParams.get('bookingId');
+    useEffect(() => {
+        if (!detailIdParam) return;
+        const id = parseInt(detailIdParam);
+        if (isNaN(id)) return;
+        setDetailBookingId(id);
+        setIsDetailModalOpen(true);
+    }, [detailIdParam]);
+
+    // ปิด modal แล้วล้าง bookingId ออกจาก URL เพื่อไม่ให้เด้งซ้ำตอน refresh
+    const handleCloseDetail = () => {
+        setIsDetailModalOpen(false);
+        if (!detailIdParam) return;
+        const params = new URLSearchParams(searchParams.toString());
+        params.delete('bookingId');
+        const query = params.toString();
+        router.replace(query ? `/service-center/bookings?${query}` : '/service-center/bookings');
+    };
+
     const toDateInputString = (isoString: string) => {
         try {
             return new Date(isoString).toISOString().split('T')[0];
@@ -931,7 +952,7 @@ function BookingsPageContent() {
             {/* Booking Detail Modal */}
             <BookingDetailModal
                 isOpen={isDetailModalOpen}
-                onClose={() => setIsDetailModalOpen(false)}
+                onClose={handleCloseDetail}
                 bookingId={detailBookingId}
             />
 

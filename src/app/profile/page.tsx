@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { Card, CardContent, CardHeader, CardTitle, Button, Input, LoadingPage } from '@/components/ui';
 import { Header } from '@/components/layouts';
+import { LineNotificationCard } from '@/components/profile/LineNotificationCard';
 import { User, Lock, Eye, EyeOff, Check } from 'lucide-react';
 
 export default function ProfilePage() {
@@ -102,6 +103,9 @@ export default function ProfilePage() {
                         </div>
                     </CardContent>
                 </Card>
+
+                {/* LINE Notification Card */}
+                <LineNotificationCard />
 
                 {/* Change Password Card */}
                 <Card>

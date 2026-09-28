@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { notifyCSUsers, NOTI_TYPES, formatBookingDate } from '@/lib/notifications';
+import { notifyBookingEvent, formatThaiBookingDate, type BookingEventType } from '@/lib/booking-notify';
 import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 import { getBangkokDateString } from '@/lib/utils';
 
@@ -457,51 +457,84 @@ export async function PUT(
             data: updateData,
         });
 
-        // === Create Notifications (broadcast to all CS users) ===
+        // === Notifications (in-app + LINE OA) ===
+        // ผู้รับถูกคัดตามสาขาของการจองนี้ + สิทธิ์ผู้ใช้ ดู src/lib/booking-notify.ts
         try {
-            const currentUserId = parseInt(session.user.id);
+            const actorName = session.user.name || session.user.email || null;
+
             const branch = await prisma.cM_MsServiceBranch.findUnique({
                 where: { BranchID: booking.BranchID },
                 select: { BranchName: true },
             });
             const branchName = branch?.BranchName || '';
 
-            // Status change notifications
+            let bayName: string | null = null;
+            if (updatedBooking.BayID) {
+                const bay = await prisma.cM_ServiceBay.findUnique({
+                    where: { BayID: updatedBooking.BayID },
+                    select: { BayName: true },
+                });
+                bayName = bay?.BayName || null;
+            }
+
+            const common = { booking: updatedBooking, branchName, bayName, actorName };
+
+            // EndTime อาจถูกส่งมาโดยไม่ได้เปลี่ยนค่า จึงต้องดูว่า "เปลี่ยนจริงไหม"
+            // ไม่ใช่แค่ "ถูกส่งมาไหม" ไม่งั้นการแก้ไขข้อมูลจะเงียบไปทั้งใบ
+            const endTimeChanged = Boolean(updateData.EndTime && updateData.EndTime !== booking.EndTime);
+
+            // 1. เลื่อนนัดหมาย
+            if (BookingDate && StartTime && EndTime) {
+                await notifyBookingEvent({
+                    ...common,
+                    event: 'RESCHEDULED',
+                    reason: RescheduleReason || null,
+                    extraRows: [{
+                        label: 'นัดเดิม',
+                        value: `${formatThaiBookingDate(booking.BookingDate)} ${booking.StartTime}-${booking.EndTime} น.`,
+                        highlight: 'muted',
+                    }],
+                });
+            }
+            // 2. ปรับเวลาซ่อม (เปลี่ยนเฉพาะ EndTime)
+            else if (endTimeChanged) {
+                await notifyBookingEvent({
+                    ...common,
+                    event: 'DURATION_CHANGED',
+                    reason: body.DurationReason || null,
+                    extraRows: [{ label: 'เวลาเดิม', value: `${booking.StartTime}-${booking.EndTime} น.`, highlight: 'muted' }],
+                });
+            }
+
+            // 3. เปลี่ยนสถานะ
             if (status !== undefined) {
                 const newStatus = parseInt(status);
-                if (newStatus === 1) {
-                    await notifyCSUsers(
-                        bookingId,
-                        NOTI_TYPES.BOOKING_APPROVED,
-                        `คิว ${booking.BookingNo} ได้รับการอนุมัติแล้ว ✅`,
-                        `คิว ${booking.BookingNo} สาขา${branchName} วันที่ ${formatBookingDate(booking.BookingDate)} เวลา ${booking.StartTime}-${booking.EndTime} น. ลูกค้า ${booking.CustomerName} อนุมัติแล้ว`,
-                        currentUserId
-                    );
-                } else if (newStatus === 2) {
-                    await notifyCSUsers(
-                        bookingId,
-                        NOTI_TYPES.BOOKING_CANCELLED,
-                        `คิว ${booking.BookingNo} ถูกยกเลิก ❌`,
-                        `คิว ${booking.BookingNo} สาขา${branchName} วันที่ ${formatBookingDate(booking.BookingDate)} เวลา ${booking.StartTime}-${booking.EndTime} น. ลูกค้า ${booking.CustomerName} ถูกยกเลิก${cancelReason ? ` เหตุผล: ${cancelReason}` : ''}`,
-                        currentUserId
-                    );
+                const statusEventMap: Record<number, BookingEventType> = {
+                    1: 'APPROVED',
+                    2: 'CANCELLED',
+                    3: 'CLAIMED',
+                    4: 'COMPLETED',
+                };
+                const statusEvent = statusEventMap[newStatus];
+                if (statusEvent) {
+                    await notifyBookingEvent({
+                        ...common,
+                        event: statusEvent,
+                        reason: newStatus === 2 ? (cancelReason || null) : null,
+                    });
                 }
             }
 
-            // Reschedule notification
-            if (BookingDate && StartTime && EndTime) {
-                const [newY, newM2, newD2] = BookingDate.split('-').map(Number);
-                const newDateStr = `${newD2}/${newM2}/${newY}`;
-                await notifyCSUsers(
-                    bookingId,
-                    NOTI_TYPES.BOOKING_RESCHEDULED,
-                    `คิว ${booking.BookingNo} ถูกเลื่อนนัดหมาย 📅`,
-                    `คิว ${booking.BookingNo} ลูกค้า ${booking.CustomerName} เลื่อนจากวันที่ ${formatBookingDate(booking.BookingDate)} (${booking.StartTime}-${booking.EndTime}) ไปเป็นวันที่ ${newDateStr} (${StartTime}-${EndTime}) ${RescheduleReason ? `เหตุผล: ${RescheduleReason}` : ''}`,
-                    currentUserId
-                );
+            // 4. แก้ไขข้อมูลคิว (ไม่ใช่การเลื่อน/เปลี่ยนสถานะ/ปรับเวลา)
+            if (hasDetails && !BookingDate && status === undefined && !endTimeChanged) {
+                const isBayChanged = BayID !== undefined && (BayID ? parseInt(BayID) : null) !== booking.BayID;
+                await notifyBookingEvent({
+                    ...common,
+                    event: isBayChanged ? 'BAY_CHANGED' : 'UPDATED',
+                });
             }
         } catch (notiError) {
-            console.error('Error creating notification:', notiError);
+            console.error('Error sending booking notifications:', notiError);
         }
 
         return NextResponse.json({

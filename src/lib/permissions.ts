@@ -1,5 +1,13 @@
 // Role & Scope Permissions Utility
 
+/**
+ * ผู้ที่มีสิทธิ์จัดการผู้ใช้ในระบบ (หน้า "จัดการผู้ใช้")
+ * ใช้เป็นเกณฑ์เดียวกันทั้งในเว็บและคำสั่งใน LINE OA
+ */
+export function canManageUsers(role?: string | null): boolean {
+    return role === 'ADMIN';
+}
+
 export function isCSRole(role?: string | null): boolean {
     return Boolean(role && (role === 'CS' || role.startsWith('CS_')));
 }

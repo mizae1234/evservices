@@ -4,7 +4,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, Button, Input, LoadingPage } from '@/components/ui';
+import { Card, CardContent, CardHeader, CardTitle, Button, ConfirmModal, Input, LoadingPage } from '@/components/ui';
 import { Header } from '@/components/layouts';
 import {
     Users,
@@ -20,7 +20,17 @@ import {
     ChevronLeft,
     ChevronRight,
     RotateCcw,
+    MessageCircle,
+    Unlink,
 } from 'lucide-react';
+
+interface LineLink {
+    DisplayName: string | null;
+    PictureUrl: string | null;
+    IsActive: boolean;
+    NotifyEnabled: boolean;
+    LinkedDate: string;
+}
 
 interface User {
     UserID: number;
@@ -32,6 +42,7 @@ interface User {
     IsActive: boolean;
     Role: { RoleCode: string; RoleName: string };
     Branch: { BranchID: number; BranchName: string } | null;
+    LineLink: LineLink | null;
 }
 
 interface Role {
@@ -220,6 +231,32 @@ export default function AdminUsersPage() {
         }
     };
 
+    // ── ยกเลิกการผูกบัญชี LINE (เฉพาะผู้ดูแลระบบ) ──
+    const [unlinkTarget, setUnlinkTarget] = useState<User | null>(null);
+    const [isUnlinking, setIsUnlinking] = useState(false);
+    const [lineMessage, setLineMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    const handleUnlinkLine = async () => {
+        if (!unlinkTarget) return;
+        setIsUnlinking(true);
+        try {
+            const res = await fetch(`/api/users/${unlinkTarget.UserID}/line-unlink`, { method: 'POST' });
+            const data = await res.json();
+            setLineMessage(
+                data.success
+                    ? { type: 'success', text: data.message }
+                    : { type: 'error', text: data.error || 'ยกเลิกการผูกบัญชีไม่สำเร็จ' }
+            );
+            if (data.success) fetchUsers();
+        } catch {
+            setLineMessage({ type: 'error', text: 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+        } finally {
+            setIsUnlinking(false);
+            setUnlinkTarget(null);
+            setTimeout(() => setLineMessage(null), 5000);
+        }
+    };
+
     const handleDelete = async (user: User) => {
         if (!confirm(`ต้องการลบผู้ใช้ "${user.FullName}" หรือไม่?`)) return;
 
@@ -279,6 +316,26 @@ export default function AdminUsersPage() {
     return (
         <>
             <Header title="จัดการผู้ใช้" subtitle="เพิ่ม แก้ไข จัดการสิทธิ์ และดูรายชื่อผู้ใช้งานทั้งหมดในระบบ" />
+
+            {lineMessage && (
+                <div className={`mt-4 p-3 rounded-lg text-sm flex items-center gap-2 ${
+                    lineMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                }`}>
+                    {lineMessage.type === 'success' && <Check className="w-4 h-4" />}
+                    {lineMessage.text}
+                </div>
+            )}
+
+            <ConfirmModal
+                isOpen={Boolean(unlinkTarget)}
+                onClose={() => setUnlinkTarget(null)}
+                onConfirm={handleUnlinkLine}
+                title="ยกเลิกการเชื่อมต่อบัญชี LINE"
+                message={`${unlinkTarget?.FullName || ''} จะไม่ได้รับการแจ้งเตือนคิวจองทาง LINE อีก และระบบจะแจ้งให้เจ้าตัวทราบใน LINE — เจ้าตัวเชื่อมต่อใหม่เองได้โดยพิมพ์ "ผูกบัญชี"`}
+                confirmText="ยกเลิกการเชื่อมต่อ"
+                variant="danger"
+                isLoading={isUnlinking}
+            />
 
             <div className="mt-6 space-y-6">
                 {/* Actions & Filters Bar */}
@@ -423,13 +480,14 @@ export default function AdminUsersPage() {
                                         <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">บทบาท (Role)</th>
                                         <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">สาขา</th>
                                         <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">สถานะ</th>
+                                        <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">บัญชี LINE</th>
                                         <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">จัดการ</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-200">
                                     {users.length === 0 ? (
                                         <tr>
-                                            <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                                            <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
                                                 <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                                                 <p className="text-base font-medium text-gray-700">ไม่พบข้อมูลผู้ใช้</p>
                                                 <p className="text-xs text-gray-400 mt-1">ลองเปลี่ยนเงื่อนไขค้นหาหรือตัวกรองบทบาท</p>
@@ -464,8 +522,56 @@ export default function AdminUsersPage() {
                                                         </span>
                                                     )}
                                                 </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    {user.LineLink ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="w-7 h-7 rounded-full bg-[#06C755] flex items-center justify-center shrink-0 overflow-hidden">
+                                                                {user.LineLink.PictureUrl ? (
+                                                                    // eslint-disable-next-line @next/next/no-img-element
+                                                                    <img src={user.LineLink.PictureUrl} alt="" className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <MessageCircle className="w-4 h-4 text-white" />
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-sm text-gray-900 truncate max-w-[160px]">
+                                                                    {user.LineLink.DisplayName || 'เชื่อมต่อแล้ว'}
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                                    {!user.LineLink.IsActive ? (
+                                                                        <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                                                            บล็อก OA
+                                                                        </span>
+                                                                    ) : !user.LineLink.NotifyEnabled ? (
+                                                                        <span className="text-[10px] font-medium text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">
+                                                                            ปิดแจ้งเตือน
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
+                                                                            รับแจ้งเตือน
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="text-[10px] text-gray-400">
+                                                                        {new Date(user.LineLink.LinkedDate).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' })}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-sm text-gray-400">ยังไม่เชื่อมต่อ</span>
+                                                    )}
+                                                </td>
                                                 <td className="px-6 py-4 whitespace-nowrap text-right">
                                                     <div className="flex items-center justify-end gap-1.5">
+                                                        {user.LineLink && (
+                                                            <button
+                                                                onClick={() => setUnlinkTarget(user)}
+                                                                className="p-1.5 text-[#06C755] hover:bg-green-50 rounded-lg transition-colors"
+                                                                title="ยกเลิกการเชื่อมต่อบัญชี LINE"
+                                                            >
+                                                                <Unlink className="w-4 h-4" />
+                                                            </button>
+                                                        )}
                                                         <button
                                                             onClick={() => handleResetPassword(user)}
                                                             className="p-1.5 text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors"

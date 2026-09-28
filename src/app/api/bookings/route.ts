@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { notifyBranchAndAdminUsers, NOTI_TYPES } from '@/lib/notifications';
+import { notifyBookingEvent } from '@/lib/booking-notify';
 import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 import { getBangkokDateString } from '@/lib/utils';
 
@@ -449,27 +449,18 @@ export async function POST(request: NextRequest) {
                 },
             });
 
-            // Notify SERVICE_CENTER (same branch) + ADMIN
-            try {
-                const currentUserId = parseInt(session.user.id);
-                const branchInfo = await prisma.cM_MsServiceBranch.findUnique({ where: { BranchID: branchId }, select: { BranchName: true } });
-                const rawBName = branchInfo?.BranchName || '';
-                const bNameText = rawBName.startsWith('สาขา') ? rawBName : `สาขา${rawBName}`;
-                const statusLabel = bookingStatus === 1 ? 'อนุมัติอัตโนมัติ' : 'รออนุมัติ';
-                
-                const dObj = new Date(bookingDate);
-                const dateStr = dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-                const timeStr = EndTime ? `${StartTime} - ${EndTime} น.` : `${StartTime} น.`;
-
-                await notifyBranchAndAdminUsers(
-                    branchId, 
-                    booking.BookingID, 
-                    NOTI_TYPES.BOOKING_NEW, 
-                    `มีคิวจองใหม่ ${booking.BookingNo} 📥`, 
-                    `ลูกค้า ${CustomerName} (ทะเบียน ${CarRegister}) จองคิววันที่ ${dateStr} เวลา ${timeStr} ที่ ${bNameText} (${statusLabel})`, 
-                    currentUserId
-                );
-            } catch (notiErr) { console.error('Noti error:', notiErr); }
+            // Notify (in-app + LINE OA) — SERVICE_CENTER สาขานี้ + ADMIN + CS ที่ดูแล BookingType นี้
+            await notifyBookingEvent({
+                event: bookingStatus === 1 ? 'AUTO_APPROVED' : 'CREATED',
+                booking,
+                actorName: session.user.name || session.user.email,
+                bayName: booking.Bay?.BayName || null,
+                serviceTypeName: booking.ServiceType?.Name || null,
+                footerNote: bookingStatus === 1 ? 'อนุมัติอัตโนมัติ' : 'สถานะ: รออนุมัติ',
+                extraRows: hasOverlap && forceOverlap
+                    ? [{ label: 'หมายเหตุ', value: `จองทับเวลากับ ${overlapInfo}` }]
+                    : undefined,
+            });
 
             return NextResponse.json({
                 success: true,
@@ -597,27 +588,13 @@ export async function POST(request: NextRequest) {
             console.error('Error creating booking log:', logErr);
         }
 
-        // Notify SERVICE_CENTER (same branch) + ADMIN
-        try {
-            const currentUserId = parseInt(session.user.id);
-            const branchInfo = await prisma.cM_MsServiceBranch.findUnique({ where: { BranchID: branchId }, select: { BranchName: true } });
-            const rawBName = branchInfo?.BranchName || '';
-            const bNameText = rawBName.startsWith('สาขา') ? rawBName : `สาขา${rawBName}`;
-            const bkStatus = booking.Status === 1 ? 'อนุมัติอัตโนมัติ' : 'รออนุมัติ';
-
-            const dObj = new Date(bookingDate);
-            const dateStr = dObj.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-            const timeStr = EndTime ? `${StartTime} - ${EndTime} น.` : `${StartTime} น.`;
-
-            await notifyBranchAndAdminUsers(
-                branchId, 
-                booking.BookingID, 
-                NOTI_TYPES.BOOKING_NEW, 
-                `มีคิวจองใหม่ ${booking.BookingNo} 📥`, 
-                `ลูกค้า ${CustomerName} (ทะเบียน ${CarRegister}) จองคิววันที่ ${dateStr} เวลา ${timeStr} ที่ ${bNameText} (${bkStatus})`, 
-                currentUserId
-            );
-        } catch (notiErr) { console.error('Noti error:', notiErr); }
+        // Notify (in-app + LINE OA)
+        await notifyBookingEvent({
+            event: booking.Status === 1 ? 'AUTO_APPROVED' : 'CREATED',
+            booking,
+            actorName: session.user.name || session.user.email,
+            footerNote: booking.Status === 1 ? 'อนุมัติอัตโนมัติ' : 'สถานะ: รออนุมัติ',
+        });
 
         return NextResponse.json({
             success: true,

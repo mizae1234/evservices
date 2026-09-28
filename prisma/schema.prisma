@@ -38,6 +38,7 @@ model CM_User {
   Branch        CM_MsServiceBranch? @relation(fields: [BranchID], references: [BranchID], onDelete: NoAction, onUpdate: NoAction)
   Role          CM_Role             @relation(fields: [RoleID], references: [RoleID], onUpdate: NoAction)
   Notifications CM_Notification[]
+  LineLink      CM_UserLineLink?
 
   @@map("CM_User")
 }
@@ -339,5 +340,65 @@ model CM_Notification {
 
   User            CM_User  @relation(fields: [UserID], references: [UserID], onUpdate: NoAction)
 
+  @@index([UserID, IsRead])
+  @@index([UserID, CreateDate])
   @@map("CM_Notification")
+}
+
+// ============================================================
+// LINE Official Account Integration
+// ============================================================
+
+/// ผูกบัญชีผู้ใช้ในระบบเข้ากับ LINE userId (1 user : 1 LINE account)
+model CM_UserLineLink {
+  LinkID        Int      @id @default(autoincrement())
+  UserID        Int      @unique
+  LineUserID    String   @unique @db.NVarChar(100)
+  DisplayName   String?  @db.NVarChar(200)
+  PictureUrl    String?  @db.NVarChar(500)
+  /// ผู้ใช้ปิดรับแจ้งเตือนเองได้ โดยไม่ต้องยกเลิกการผูกบัญชี
+  NotifyEnabled Boolean  @default(true)
+  /// false = ยกเลิกการผูก / บล็อก OA
+  IsActive      Boolean  @default(true)
+  LinkedDate    DateTime @default(now())
+  UpdateDate    DateTime @updatedAt
+
+  User CM_User @relation(fields: [UserID], references: [UserID], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([LineUserID])
+  @@map("CM_UserLineLink")
+}
+
+/// Token ชั่วคราวสำหรับหน้า "ผูกบัญชี" ที่ส่งให้ผู้ใช้ทาง LINE (อายุสั้น, ใช้ได้ครั้งเดียว)
+model CM_LineLinkToken {
+  TokenID    Int       @id @default(autoincrement())
+  Token      String    @unique @db.NVarChar(100)
+  LineUserID String    @db.NVarChar(100)
+  ExpireDate DateTime
+  UsedDate   DateTime?
+  /// จำนวนครั้งที่กรอกรหัสผ่านผิด — เก็บใน DB เพื่อให้ทนการ restart และใช้ได้หลาย instance
+  FailedAttempts Int    @default(0)
+  CreateDate DateTime  @default(now())
+
+  @@index([LineUserID])
+  @@index([ExpireDate])
+  @@map("CM_LineLinkToken")
+}
+
+/// Outbox การส่งข้อความ LINE (ไว้ตรวจสอบย้อนหลัง / debug ว่าใครควรได้รับอะไร)
+model CM_LineMessageLog {
+  LogID      Int      @id @default(autoincrement())
+  UserID     Int?
+  LineUserID String?  @db.NVarChar(100)
+  BookingID  Int?
+  EventType  String   @db.NVarChar(50)
+  Title      String   @db.NVarChar(200)
+  Message    String   @db.NVarChar(1000)
+  IsSuccess  Boolean  @default(true)
+  ErrorMsg   String?  @db.NVarChar(500)
+  CreateDate DateTime @default(now())
+
+  @@index([BookingID])
+  @@index([CreateDate])
+  @@map("CM_LineMessageLog")
 }

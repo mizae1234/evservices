@@ -3,14 +3,15 @@
 
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button, Input, Card, CardContent } from '@/components/ui';
 import { Car, AlertCircle } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginPageContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -31,8 +32,14 @@ export default function LoginPage() {
             if (result?.error) {
                 setError(result.error);
             } else {
-                // Redirect based on role (middleware will handle this)
-                router.push('/');
+                // กลับไปหน้าที่ผู้ใช้ตั้งใจเปิด (เช่น deep link จากแจ้งเตือน LINE)
+                // ถ้าไม่มีก็ให้ '/' แล้ว middleware พาไปหน้าตาม role
+                // รับเฉพาะ path ภายในระบบ กัน open-redirect ไปเว็บอื่น
+                const callbackUrl = searchParams.get('callbackUrl');
+                const target = callbackUrl && callbackUrl.startsWith('/') && !callbackUrl.startsWith('//')
+                    ? callbackUrl
+                    : '/';
+                router.push(target);
                 router.refresh();
             }
         } catch {
@@ -99,5 +106,17 @@ export default function LoginPage() {
                 </CardContent>
             </Card>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4" />
+            }
+        >
+            <LoginPageContent />
+        </Suspense>
     );
 }

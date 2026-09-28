@@ -16,7 +16,8 @@ export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
     // Public routes that don't require authentication
-    const publicRoutes = ['/auth/login', '/api/auth', '/api/mileages', '/api/car-models', '/api/branches'];
+    // '/api/line' + '/line/link' เป็น public เพราะ LINE webhook และหน้าผูกบัญชี (เปิดจาก in-app browser) ยังไม่มี session
+    const publicRoutes = ['/auth/login', '/api/auth', '/api/mileages', '/api/car-models', '/api/branches', '/api/line/webhook', '/api/line/link', '/line/link'];
     const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
 
     // Allow public routes
@@ -34,7 +35,9 @@ export async function middleware(request: NextRequest) {
     // Check if user is authenticated
     if (!token) {
         const loginUrl = new URL('/auth/login', request.url);
-        loginUrl.searchParams.set('callbackUrl', pathname);
+        // ต้องพา query string ไปด้วย ไม่งั้น deep link (เช่น ?bookingId= จากแจ้งเตือน LINE)
+        // จะหายหลังผู้ใช้ login เสร็จ
+        loginUrl.searchParams.set('callbackUrl', pathname + request.nextUrl.search);
         return NextResponse.redirect(loginUrl);
     }
 
