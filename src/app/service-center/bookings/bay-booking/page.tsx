@@ -281,12 +281,12 @@ function BayBookingPageInner() {
     const relevantMileages = selectedST?.RequiresMileage
         ? (() => {
             // Deduplicate by MileageID
-            const seen = new Map<string, { value: string; label: string; duration: number; disabled: boolean }>();
+            const seen = new Map<string, { value: string; label: string; description: string; duration: number; disabled: boolean }>();
             for (const fr of applicableMileageRates) {
                 const key = fr.MileageID!.toString();
                 if (seen.has(key)) continue;
                 const disabled = lastMileageNum > 0 && fr.Mileage!.Value <= lastMileageNum;
-                seen.set(key, { value: key, label: fr.Mileage!.Label, duration: fr.DurationMinutes, disabled });
+                seen.set(key, { value: key, label: fr.Mileage!.Label, description: fr.Description?.trim() || '', duration: fr.DurationMinutes, disabled });
             }
             return Array.from(seen.values());
         })()
@@ -781,7 +781,7 @@ function BayBookingPageInner() {
                                                         : 'border-gray-200 hover:border-blue-300'
                                             }`}
                                         >
-                                            <p className={`font-bold text-sm ${m.disabled ? 'text-gray-400' : 'text-gray-900'}`}>{m.label}</p>
+                                            <p className={`font-bold text-sm ${m.disabled ? 'text-gray-400' : 'text-gray-900'}`}>{m.description || m.label}</p>
                                             <p className={`text-xs font-medium mt-0.5 ${m.disabled ? 'text-gray-300' : 'text-blue-600'}`}>{formatDuration(m.duration)}</p>
                                         </button>
                                     ))}
