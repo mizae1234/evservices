@@ -175,6 +175,9 @@ export function BookingDetailModal({ isOpen, onClose, bookingId }: BookingDetail
                                     ? '🔧 ซ่อมทั่วไป'
                                     : `📅 ตรวจเช็คระยะ (${booking.Mileage.toLocaleString()} กม.)`}
                             </span>
+                            {booking.FlatRateDescription && booking.ProjectType !== 'ซ่อมทั่วไป' && booking.Mileage !== 0 && (
+                                <span className="block text-xs text-gray-600 mt-0.5">{booking.FlatRateDescription}</span>
+                            )}
                         </div>
                         <div>
                             <span className="text-[10px] text-gray-400 block uppercase font-semibold">เลขไมล์ปัจจุบัน</span>

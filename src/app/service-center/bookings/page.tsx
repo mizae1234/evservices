@@ -31,6 +31,7 @@ import type { ActionModalState } from '@/components/bookings/modals/ActionConfir
 import { MonthlyCalendar } from '@/components/bookings/MonthlyCalendar';
 
 interface Booking {
+    FlatRateDescription?: string | null;
     BookingID: number;
     BookingNo: string;
     BookingDate: string;
@@ -731,6 +732,9 @@ function BookingsPageContent() {
                                                             <div className="text-xs text-amber-600 font-medium">🔧 ซ่อมทั่วไป</div>
                                                         ) : (
                                                             <div className="text-xs text-blue-600 font-medium">ตรวจ {booking.Mileage.toLocaleString()} กม.</div>
+                                                        )}
+                                                        {booking.FlatRateDescription && booking.ProjectType !== 'ซ่อมทั่วไป' && booking.Mileage !== 0 && (
+                                                            <div className="text-xs text-gray-500">{booking.FlatRateDescription}</div>
                                                         )}
                                                     </td>
                                                     <td className="px-6 py-4">

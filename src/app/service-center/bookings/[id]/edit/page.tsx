@@ -39,6 +39,7 @@ export default function EditBookingPage() {
         EndTime: '',
         ProjectType: '',
         Mileage: 0,
+        FlatRateDescription: '',
     });
 
     const [isLoading, setIsLoading] = useState(true);
@@ -74,6 +75,7 @@ export default function EditBookingPage() {
                         EndTime: b.EndTime,
                         ProjectType: b.ProjectType || '',
                         Mileage: b.Mileage,
+                        FlatRateDescription: b.FlatRateDescription || '',
                     });
                 } else {
                     setError(data.error || 'Failed to fetch booking details');
@@ -266,6 +268,9 @@ export default function EditBookingPage() {
                                         ? '🔧 ซ่อมทั่วไป'
                                         : `📅 ตรวจเช็คระยะ (${formData.Mileage.toLocaleString()} กม.)`}
                                 </span>
+                                {formData.FlatRateDescription && formData.ProjectType !== 'ซ่อมทั่วไป' && formData.Mileage !== 0 && (
+                                    <span className="block text-xs text-gray-600 mt-0.5">{formData.FlatRateDescription}</span>
+                                )}
                             </div>
                             <div>
                                 <span className="text-xs text-gray-400 block font-semibold uppercase">วันที่จอง</span>

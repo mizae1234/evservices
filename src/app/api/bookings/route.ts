@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { withFlatRateDescription } from '@/lib/flat-rate-description';
 import { notifyBookingEvent } from '@/lib/booking-notify';
 import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 import { getBangkokDateString } from '@/lib/utils';
@@ -116,7 +117,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            data: bookings,
+            data: await withFlatRateDescription(bookings),
             total,
             page,
             pageSize,

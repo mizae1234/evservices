@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { withFlatRateDescription } from '@/lib/flat-rate-description';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getAllowedBookingType } from '@/lib/permissions';
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             success: true,
-            data: bookings,
+            data: await withFlatRateDescription(bookings),
         });
     } catch (error) {
         console.error('Error fetching bookings report:', error);

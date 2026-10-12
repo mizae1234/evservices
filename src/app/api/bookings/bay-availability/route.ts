@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { withFlatRateDescription } from '@/lib/flat-rate-description';
 import { isCSRole, getAllowedBookingType } from '@/lib/permissions';
 
 // Helper: Convert "HH:MM" string to minutes since midnight
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
         }
 
         // 4. Fetch all bookings for this branch on this date (excluding rejected/cancelled)
-        const bookings = await prisma.cM_Booking.findMany({
+        const rawBookings = await prisma.cM_Booking.findMany({
             where: {
                 BranchID: branchId,
                 BookingDate: { gte: startOfDay, lte: endOfDay },
@@ -136,6 +137,7 @@ export async function GET(request: NextRequest) {
             },
             orderBy: { StartTime: 'asc' },
         });
+        const bookings = await withFlatRateDescription(rawBookings);
 
         // 5. Get branch operating hours from branch settings
         const branchInfo = await prisma.cM_MsServiceBranch.findUnique({
@@ -199,6 +201,7 @@ export async function GET(request: NextRequest) {
                         BookingDate: b.BookingDate,
                         Mileage: b.Mileage,
                         LastMileage: b.LastMileage,
+                        FlatRateDescription: b.FlatRateDescription,
                         ClaimDetail: b.ClaimDetail,
                         CustomerPhone: b.CustomerPhone,
                         isMasked: false,
@@ -224,6 +227,7 @@ export async function GET(request: NextRequest) {
                 BookingDate: new Date(),
                 Mileage: 0,
                 LastMileage: 0,
+                FlatRateDescription: null,
                 ClaimDetail: null,
                 CustomerPhone: null,
                 isMasked: false,

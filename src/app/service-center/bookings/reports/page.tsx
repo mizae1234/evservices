@@ -10,6 +10,7 @@ import { isCSRole } from '@/lib/permissions';
 import { getBangkokDateString } from '@/lib/utils';
 
 interface BookingReport {
+    FlatRateDescription?: string | null;
     BookingID: number;
     BookingNo: string;
     BookingDate: string;
@@ -369,6 +370,9 @@ export default function BookingReportPage() {
                                                 <td className="px-4 py-3">
                                                     <div className="text-gray-900">{item.ServiceType?.Name || '-'}</div>
                                                     <div className="text-xs text-gray-500">ระยะ: {item.Mileage.toLocaleString()} กม.</div>
+                                                    {item.FlatRateDescription && item.Mileage > 0 && (
+                                                        <div className="text-xs text-gray-500">{item.FlatRateDescription}</div>
+                                                    )}
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     {getStatusBadge(item.Status, item.ClaimID)}

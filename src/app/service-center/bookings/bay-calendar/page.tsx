@@ -21,6 +21,7 @@ import { getBangkokDateString } from '@/lib/utils';
 
 // --- Types ---
 interface BayBooking {
+    FlatRateDescription?: string | null;
     BookingID: number;
     BookingNo: string;
     StartTime: string;
@@ -1205,6 +1206,9 @@ function BayCalendarPageInner() {
                                                         <span className="text-gray-700 font-bold text-xs">เช็คระยะ (กม.)</span>
                                                         <p className="font-bold text-blue-700 text-base mt-0.5">
                                                             {selectedBooking.Mileage.toLocaleString()} กม.
+                                                            {selectedBooking.FlatRateDescription && (
+                                                                <span className="block text-gray-600 text-xs font-medium">{selectedBooking.FlatRateDescription}</span>
+                                                            )}
                                                             {selectedBooking.LastMileage != null && selectedBooking.LastMileage > 0 && (
                                                                 <span className="text-gray-500 text-xs font-medium ml-2">(ล่าสุด {selectedBooking.LastMileage.toLocaleString()} กม.)</span>
                                                             )}
