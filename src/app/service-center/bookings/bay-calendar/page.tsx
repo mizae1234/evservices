@@ -73,7 +73,7 @@ const STATUS_CONFIG: Record<number, { label: string; color: string; bgColor: str
     4: { label: 'ยกเลิก', color: 'text-gray-500', bgColor: 'bg-gray-50', borderColor: 'border-gray-300' },
 };
 
-const SLOT_WIDTH = 80; // px per 30-min slot
+const SLOT_WIDTH = 100; // px per 30-min slot
 const BAY_LABEL_WIDTH = 120; // px for bay name column
 
 function timeToMinutes(t: string): number {
@@ -891,7 +891,8 @@ function BayCalendarPageInner() {
                                                     className={`shrink-0 text-center text-xs font-medium text-gray-500 py-2 border-r border-gray-100 ${i % 2 === 0 ? 'bg-gray-50' : 'bg-white'}`}
                                                     style={{ width: SLOT_WIDTH }}
                                                 >
-                                                    {time}
+                                                    {/* Show the full 30-min range so the last column reads 17:30–18:00, not "17:30" */}
+                                                    {time}–{minutesToTime(Math.min(timeToMinutes(time) + 30, closeMin))}
                                                 </div>
                                             ))}
                                         </div>
