@@ -1474,10 +1474,13 @@ function BayRow({
 
                 {/* Booking blocks */}
                 {bay.Bookings.map((booking) => {
-                    const startOff = booking.StartMinutes - openMin;
-                    const duration = booking.EndMinutes - booking.StartMinutes;
-                    const left = (startOff / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
-                    const width = (duration / totalMinutes) * (timeSlots.length * SLOT_WIDTH);
+                    // Clamp to the grid so bookings spilling outside opening hours still fit the table
+                    const visStart = Math.min(Math.max(booking.StartMinutes, openMin), closeMin);
+                    const visEnd = Math.min(Math.max(booking.EndMinutes, openMin), closeMin);
+                    const gridWidth = timeSlots.length * SLOT_WIDTH;
+                    const minWidth = 40;
+                    const width = Math.max(((visEnd - visStart) / totalMinutes) * gridWidth, minWidth);
+                    const left = Math.min((visStart - openMin) / totalMinutes * gridWidth, gridWidth - width);
                     
                     const isMasked = !!booking.isMasked || booking.CustomerName === 'จองแล้ว (คิวอื่น)';
                     const isSystemBlock = booking.CustomerName === '[ปิดช่องซ่อมชั่วคราว]';
@@ -1498,7 +1501,7 @@ function BayRow({
                             draggable={canDrag}
                             onDragStart={(e) => onBookingDragStart(e, booking)}
                             className={`absolute ${config.bgColor} border ${config.borderColor} rounded-md px-2 flex items-center gap-1 overflow-hidden cursor-pointer hover:shadow-md transition-shadow text-left select-none ${canDrag ? 'active:cursor-grabbing' : isMasked ? 'cursor-not-allowed opacity-75' : 'cursor-default'}`}
-                            style={{ left, width: Math.max(width, 40), top: laneTop, height: laneHeight }}
+                            style={{ left, width, top: laneTop, height: laneHeight }}
                             onClick={() => onBookingClick(booking)}
                             title={isMasked ? `จองแล้ว (คิวอื่น) ${booking.StartTime}-${booking.EndTime}` : isSystemBlock ? `ช่องซ่อมนี้ปิดบริการชั่วคราว: ${booking.CarModel}` : `${booking.BookingNo} | ${booking.CustomerName} | ${booking.StartTime}-${booking.EndTime}${canDrag ? ' (ลากขยับเพื่อเลื่อนคิว)' : ''}`}
                         >
