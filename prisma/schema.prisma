@@ -56,6 +56,8 @@ model CM_MsServiceBranch {
   CreateDate         DateTime              @default(now())
   UpdateDate  DateTime              @updatedAt
   Bookings      CM_Booking[]
+  Queues        CM_Queue[]
+  QueueChannels CM_QueueChannel[]
   Holidays      CM_BranchHoliday[]
   Configs       CM_BranchSlotConfig[]
   WorkingDays   CM_BranchWorkingDay[]
@@ -200,6 +202,7 @@ model CM_Booking {
   Bay             CM_ServiceBay?     @relation(fields: [BayID], references: [BayID], onDelete: NoAction, onUpdate: NoAction)
   ServiceType     CM_ServiceType?    @relation(fields: [ServiceTypeID], references: [ServiceTypeID], onDelete: NoAction, onUpdate: NoAction)
   Logs            CM_BookingLog[]
+  Queues          CM_Queue[]
 
   @@map("CM_Booking")
 }
@@ -291,6 +294,7 @@ model CM_ServiceType {
   UpdateDate      DateTime      @updatedAt
   FlatRates       CM_FlatRate[]
   Bookings        CM_Booking[]
+  Queues          CM_Queue[]
 
   @@map("CM_ServiceType")
 }
@@ -401,4 +405,70 @@ model CM_LineMessageLog {
   @@index([BookingID])
   @@index([CreateDate])
   @@map("CM_LineMessageLog")
+}
+
+// ===== Queue Management =====
+// หมายเหตุ: filtered unique index (กันคิว active ซ้ำต่อทะเบียน / ต่อ booking) ประกาศใน SQL เท่านั้น
+// ดู prisma/manual-migrations/002_queue_management.sql
+model CM_Queue {
+  QueueID         Int                @id @default(autoincrement())
+  BranchID        Int
+  QueueDate       DateTime           @db.Date
+  QueueNo         Int // ลำดับภายในตัวอักษรของประเภทบริการ (A001, B001, ...)
+  QueueLabel      String             @db.NVarChar(10)
+  BookingID       Int?
+  NeedsReview     Boolean            @default(false)
+  CarRegister     String             @db.NVarChar(20)
+  CustomerName    String             @db.NVarChar(100)
+  CustomerPhone   String?            @db.NVarChar(20)
+  CarModel        String?            @db.NVarChar(100)
+  VinNo           String?            @db.NVarChar(50)
+  InventoryItemID Int?
+  BookingType     String             @default("EV7") @db.NVarChar(20)
+  ServiceTypeID   Int?
+  ServiceOther    String?            @db.NVarChar(200) // บริการ "อื่นๆ" ที่ลูกค้าพิมพ์เอง (ServiceTypeID = null)
+  Status          String             @default("WAITING_CALL") @db.NVarChar(20)
+  RepairDetail    String?            @db.NVarChar(Max)
+  CheckInDate     DateTime           @default(now())
+  CalledDate      DateTime?
+  Version         Int                @default(0)
+  CreateDate      DateTime           @default(now())
+  UpdateDate      DateTime           @updatedAt
+  Branch          CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+  Booking         CM_Booking?        @relation(fields: [BookingID], references: [BookingID], onDelete: NoAction, onUpdate: NoAction)
+  ServiceType     CM_ServiceType?    @relation(fields: [ServiceTypeID], references: [ServiceTypeID], onDelete: NoAction, onUpdate: NoAction)
+  Logs            CM_QueueLog[]
+
+  @@unique([BranchID, QueueDate, QueueLabel])
+  @@index([BranchID, QueueDate, Status])
+  @@map("CM_Queue")
+}
+
+model CM_QueueLog {
+  LogID        Int      @id @default(autoincrement())
+  QueueID      Int
+  FromStatus   String?  @db.NVarChar(20)
+  ToStatus     String   @db.NVarChar(20)
+  ActionBy     Int?
+  ActionByName String?  @db.NVarChar(100)
+  Note         String?  @db.NVarChar(500)
+  CreateDate   DateTime @default(now())
+  Queue        CM_Queue @relation(fields: [QueueID], references: [QueueID], onDelete: Cascade)
+
+  @@index([QueueID])
+  @@map("CM_QueueLog")
+}
+
+// ช่องบริการที่ใช้ประกาศเรียกคิว ตั้งค่าต่อสาขาต่อสถานะ (เช่น รอชำระเงิน = "ช่องชำระเงิน" หมายเลข 2)
+model CM_QueueChannel {
+  ChannelID   Int                @id @default(autoincrement())
+  BranchID    Int
+  Status      String             @db.NVarChar(20)
+  ChannelName String             @db.NVarChar(50)
+  ChannelNo   String             @db.NVarChar(10)
+  UpdateDate  DateTime           @default(now()) @updatedAt
+  Branch      CM_MsServiceBranch @relation(fields: [BranchID], references: [BranchID], onUpdate: NoAction)
+
+  @@unique([BranchID, Status])
+  @@map("CM_QueueChannel")
 }

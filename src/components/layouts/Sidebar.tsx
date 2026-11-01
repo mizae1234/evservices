@@ -28,6 +28,7 @@ import {
     Layers,
     Settings,
     BarChart3,
+    Ticket,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -50,6 +51,12 @@ const menuItems: MenuItem[] = [
         href: '/service-center/bookings',
         icon: <Calendar className="w-5 h-5" />,
         roles: ['SERVICE_CENTER', 'ADMIN', 'CS'],
+    },
+    {
+        label: 'จัดการคิวหน้าสาขา',
+        href: '/service-center/queue',
+        icon: <Ticket className="w-5 h-5" />,
+        roles: ['SERVICE_CENTER', 'ADMIN'],
     },
     {
         label: 'Bay Calendar',

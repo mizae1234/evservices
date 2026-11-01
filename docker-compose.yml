@@ -16,6 +16,8 @@ services:
       # NextAuth
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
       - NEXTAUTH_URL=${NEXTAUTH_URL}
+      # Queue Management
+      - QUEUE_QR_SECRET=${QUEUE_QR_SECRET}
       # S3 (DigitalOcean Spaces)
       - S3_ENDPOINT=${S3_ENDPOINT}
       - S3_BUCKET=${S3_BUCKET}

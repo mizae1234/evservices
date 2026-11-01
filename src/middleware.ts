@@ -17,7 +17,7 @@ export async function middleware(request: NextRequest) {
 
     // Public routes that don't require authentication
     // '/api/line' + '/line/link' เป็น public เพราะ LINE webhook และหน้าผูกบัญชี (เปิดจาก in-app browser) ยังไม่มี session
-    const publicRoutes = ['/auth/login', '/api/auth', '/api/mileages', '/api/car-models', '/api/branches', '/api/line/webhook', '/api/line/link', '/line/link'];
+    const publicRoutes = ['/auth/login', '/api/auth', '/api/mileages', '/api/car-models', '/api/branches', '/api/line/webhook', '/api/line/link', '/line/link', '/checkin', '/monitor', '/api/public/queue'];
     const isPublicRoute = publicRoutes.some((route) => pathname.startsWith(route));
 
     // Allow public routes
