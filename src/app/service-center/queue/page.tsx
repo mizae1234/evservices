@@ -7,7 +7,7 @@ import { useSession } from 'next-auth/react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
     AlertCircle, ArrowRight, Car, CheckCircle2, Clock, Copy, ExternalLink, Monitor, Phone, QrCode, Search, Smartphone,
-    Volume2, UserX, X, CalendarCheck, Wrench, FileText, Settings,
+    Volume2, UserX, X, CalendarCheck, Wrench, FileText, Settings, Printer,
 } from 'lucide-react';
 import { Badge, Button, Card, CardContent, Input, LoadingPage, Modal, Select, Textarea } from '@/components/ui';
 import { Header } from '@/components/layouts';
@@ -180,6 +180,52 @@ export default function QueuePage() {
             .then((d) => setLinks(d.success ? d.data : null))
             .catch(() => setLinks(null));
     }, [branchId]);
+
+    const branchName = (isAdmin ? branches.find((b) => String(b.BranchID) === branchId)?.BranchName : session?.user?.branchName) || '';
+
+    // พิมพ์โปสเตอร์ QR ขนาด A4: เปิดหน้าต่างใหม่ที่มีเฉพาะโปสเตอร์ (ไม่พิมพ์หน้าระบบทั้งหน้า)
+    const printQr = () => {
+        const svg = document.getElementById('qr-print-source')?.querySelector('svg')?.outerHTML;
+        if (!svg) return;
+        const esc = (t: string) => t.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+        const w = window.open('', '_blank', 'width=900,height=1200');
+        if (!w) { setError('เบราว์เซอร์บล็อกหน้าต่างพิมพ์ กรุณาอนุญาต pop-up แล้วลองใหม่'); return; }
+        w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>QR Check-in ${esc(branchName)}</title>
+<style>
+@page { size: A4 portrait; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { width: 210mm; height: 297mm; font-family: 'Sarabun','Noto Sans Thai','Thonburi','Tahoma',sans-serif; color: #064e3b; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.page { width: 210mm; height: 297mm; padding: 16mm 18mm; display: flex; flex-direction: column; align-items: center; justify-content: space-between; background: linear-gradient(#ecfdf5, #fff 45%); }
+.head { text-align: center; }
+.badge { display: inline-block; background: #059669; color: #fff; font-size: 20pt; font-weight: 700; padding: 3mm 10mm; border-radius: 99px; }
+h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
+.branch { font-size: 24pt; color: #047857; font-weight: 600; }
+.qr { background: #fff; border: 3mm solid #059669; border-radius: 10mm; padding: 8mm; width: 128mm; height: 128mm; }
+.qr svg { width: 100%; height: 100%; display: block; }
+.scan { text-align: center; font-size: 30pt; font-weight: 700; margin-top: 2mm; }
+.sub { text-align: center; font-size: 15pt; color: #4b5563; margin-top: 1mm; }
+.steps { width: 100%; display: flex; gap: 6mm; }
+.step { flex: 1; text-align: center; background: #fff; border: 0.6mm solid #a7f3d0; border-radius: 6mm; padding: 6mm 4mm; }
+.num { width: 14mm; height: 14mm; margin: 0 auto 3mm; border-radius: 50%; background: #059669; color: #fff; font-size: 20pt; font-weight: 700; line-height: 14mm; }
+.step b { display: block; font-size: 17pt; }
+.step span { font-size: 13pt; color: #4b5563; }
+.foot { font-size: 11pt; color: #6b7280; }
+</style></head><body><div class="page">
+<div class="head"><span class="badge">รับคิวเข้าศูนย์บริการ</span><h1>สแกน QR Code เพื่อรับคิว</h1><div class="branch">${esc(branchName)}</div></div>
+<div><div class="qr">${svg}</div><div class="scan">ใช้กล้องมือถือสแกนได้เลย</div><div class="sub">ไม่ต้องติดตั้งแอปพลิเคชัน</div></div>
+<div class="steps">
+<div class="step"><div class="num">1</div><b>สแกน QR Code</b><span>เปิดหน้ารับคิวบนมือถือ</span></div>
+<div class="step"><div class="num">2</div><b>กรอกทะเบียนรถ</b><span>และเลือกประเภทบริการ</span></div>
+<div class="step"><div class="num">3</div><b>รอเรียกคิว</b><span>ดูหมายเลขคิวบนหน้าจอ</span></div>
+</div>
+<div class="foot">EV Services</div>
+</div></body></html>`);
+        w.document.close();
+        w.onafterprint = () => w.close();
+        // รอให้หน้าต่างวาดเสร็จก่อนเปิดหน้าต่างพิมพ์
+        setTimeout(() => { w.focus(); w.print(); }, 400);
+    };
 
     const copy = async (key: string, text: string) => {
         try {
@@ -524,9 +570,10 @@ export default function QueuePage() {
             <Modal isOpen={showQr && !!links} onClose={() => setShowQr(false)} title="QR Code สำหรับ Check-in" size="sm">
                 {links && (
                     <div className="flex flex-col items-center gap-3">
-                        <div className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm"><QRCodeSVG value={links.checkinUrl} size={256} marginSize={2} /></div>
+                        {branchName && <p className="text-sm font-semibold text-gray-800">{branchName}</p>}
+                        <div id="qr-print-source" className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm"><QRCodeSVG value={links.checkinUrl} size={256} marginSize={2} /></div>
                         <p className="text-center text-xs text-gray-500">ให้ลูกค้าสแกนเพื่อรับคิว (ลิงก์ผูกกับสาขานี้เท่านั้น)</p>
-                        <Button variant="outline" onClick={() => window.print()}>พิมพ์</Button>
+                        <Button onClick={printQr}><Printer className="mr-1.5 h-4 w-4" />พิมพ์โปสเตอร์ QR (A4)</Button>
                     </div>
                 )}
             </Modal>
@@ -619,7 +666,7 @@ export default function QueuePage() {
             {/* ตั้งค่าช่องบริการ (ใช้ประกาศเรียกคิว) */}
             <Modal isOpen={showChannels} onClose={() => setShowChannels(false)} title="ตั้งค่าช่องบริการ" size="lg">
                 <div className="space-y-4">
-                    <p className="text-sm text-gray-600">กำหนดว่าแต่ละสถานะให้ลูกค้าไปที่ช่องไหน เมื่อกดประกาศเรียกคิว ระบบจะพูดว่า “ขอเชิญหมายเลข … มาที่ช่องบริการหมายเลข …” (เว้นหมายเลขว่างไว้ = ไม่ประกาศช่อง)</p>
+                    <p className="text-sm text-gray-600">กำหนดว่าแต่ละสถานะให้ลูกค้าไปที่ช่องไหน เมื่อกดประกาศเรียกคิว ระบบจะพูดว่า “ขอเชิญหมายเลข … ที่ช่องบริการหมายเลข …” (เว้นหมายเลขว่างไว้ = ไม่ประกาศช่อง)</p>
                     <div className="space-y-2">
                         {BOARD_COLUMNS.map((st) => (
                             <div key={st} className="grid grid-cols-[110px_1fr_90px] items-end gap-2">

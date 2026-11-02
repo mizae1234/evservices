@@ -106,7 +106,7 @@ function MonitorContent() {
             if (audioRef.current) playChime(audioRef.current);
             if ('speechSynthesis' in window) {
                 window.speechSynthesis.cancel();
-                const where = call.channel ? ` มาที่${call.channel.name}หมายเลข ${speakableNumber(call.channel.no)}` : '';
+                const where = call.channel ? ` ที่${call.channel.name}หมายเลข ${speakableNumber(call.channel.no)}` : '';
                 const text = `ขอเชิญหมายเลข ${speakableLabel(call.label)}${where} ค่ะ`;
                 [0, 1].forEach(() => {
                     const u = new SpeechSynthesisUtterance(text);

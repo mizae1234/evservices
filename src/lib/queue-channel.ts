@@ -1,4 +1,4 @@
-// ช่องบริการต่อสถานะ (ใช้ประกาศ "มาที่ช่องบริการหมายเลข N")
+// ช่องบริการต่อสถานะ (ใช้ประกาศ "ที่ช่องบริการหมายเลข N")
 
 import { prisma } from '@/lib/prisma';
 import { BOARD_STATUSES } from '@/lib/queue-status';
