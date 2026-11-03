@@ -158,6 +158,13 @@ export async function PUT(
         if (status !== undefined) {
             const newStatus = parseInt(status);
             updateData.Status = newStatus;
+            if (newStatus === 1 && booking.Status !== 1) {
+                logsToCreate.push({
+                    LogType: 'APPROVED',
+                    Content: `Booking approved by ${session.user.name || session.user.email}`,
+                    CreateBy: session.user.name || session.user.email || 'System',
+                });
+            }
             if (newStatus === 2) {
                 logsToCreate.push({
                     LogType: 'CANCEL',
