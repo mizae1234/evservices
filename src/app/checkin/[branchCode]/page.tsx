@@ -249,7 +249,7 @@ function CheckInContent() {
                 body: JSON.stringify({
                     token,
                     carRegister: plate,
-                    customerName: lookup.kind === 'new' ? customerName : undefined,
+                    customerName: needsName ? customerName.trim() : undefined,
                     customerPhone: needsPhone ? customerPhone : undefined,
                     serviceTypeId: !otherService && serviceTypeId ? Number(serviceTypeId) : null,
                     otherService: needsService && otherService,
@@ -271,12 +271,18 @@ function CheckInContent() {
         }
     };
 
+    // ไม่มีชื่อในระบบ (เช่น รถทดแทน ไม่ผูกกับเจ้าของ) ให้ลูกค้ากรอกเอง
+    const needsName = !!lookup && (
+        lookup.kind === 'new'
+        || (lookup.kind === 'vehicle' && !lookup.vehicle.customerName?.trim())
+        || (lookup.kind === 'booking' && !lookup.booking.customerName?.trim())
+    );
     const needsService = !!lookup && (lookup.kind !== 'booking' || !lookup.booking.serviceTypeId);
     // ลูกค้าที่มีการจอง (และมีเบอร์ในการจอง) ไม่ต้องกรอกเบอร์ซ้ำ
     const needsPhone = !!lookup && !(lookup.kind === 'booking' && lookup.booking.customerPhone);
     const canSubmit = !!lookup
         && (!needsPhone || customerPhone.length === 10)
-        && (lookup.kind !== 'new' || customerName.trim().length > 0)
+        && (!needsName || customerName.trim().length > 0)
         && (!needsService || (otherService ? serviceOther.trim().length > 0 : !!serviceTypeId));
 
     return (
@@ -344,11 +350,17 @@ function CheckInContent() {
                                 <div className="space-y-1 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
                                     <p className="flex items-center gap-2 font-semibold text-emerald-800"><Sparkles className="h-5 w-5" />ข้อมูลลูกค้า</p>
                                     <dl className="space-y-1.5 text-sm">
-                                        <Row label="ชื่อ-นามสกุล" value={lookup.vehicle.customerName || '-'} />
+                                        {lookup.vehicle.customerName?.trim() && <Row label="ชื่อ-นามสกุล" value={lookup.vehicle.customerName} />}
                                         <Row label="ทะเบียนรถ" value={lookup.vehicle.carRegister} />
                                         <Row label="รุ่นรถ" value={lookup.vehicle.carModel ?? '-'} />
                                     </dl>
-                                    <p className="text-xs text-gray-500">ระบบจะใช้ข้อมูลนี้ให้อัตโนมัติ ไม่ต้องกรอกซ้ำ</p>
+                                    <p className="text-xs text-gray-500">{needsName ? 'ไม่พบชื่อผู้ใช้รถคันนี้ในระบบ กรุณากรอกชื่อของคุณด้านล่าง' : 'ระบบจะใช้ข้อมูลนี้ให้อัตโนมัติ ไม่ต้องกรอกซ้ำ'}</p>
+                                </div>
+                            )}
+                            {needsName && lookup?.kind !== 'new' && (
+                                <div className="space-y-2">
+                                    <label className="flex items-center gap-2 text-sm font-medium text-emerald-800"><User className="h-4 w-4" />ชื่อ-นามสกุล <span className="text-red-500">*</span></label>
+                                    <input className={inputCls} placeholder="ชื่อ-นามสกุลผู้นำรถเข้าใช้บริการ" maxLength={100} value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
                                 </div>
                             )}
                             {lookup?.kind === 'new' && (
