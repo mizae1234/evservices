@@ -7,7 +7,7 @@ import { useSession } from 'next-auth/react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
     AlertCircle, ArrowRight, Car, CheckCircle2, Clock, Copy, ExternalLink, Monitor, Phone, QrCode, Search, Smartphone,
-    Volume2, UserX, X, CalendarCheck, Wrench, FileText, Settings, Printer,
+    Volume2, UserX, X, CalendarCheck, Wrench, FileText, Settings, Printer, Pencil,
 } from 'lucide-react';
 import { Badge, Button, Card, CardContent, Input, LoadingPage, Modal, Select, Textarea } from '@/components/ui';
 import { Header } from '@/components/layouts';
@@ -33,6 +33,7 @@ interface QueueItem {
     RepairDetail: string | null;
     Version: number;
     CheckInDate: string;
+    ServiceTypeID: number | null;
     ServiceType: { Name: string } | null;
     ServiceOther: string | null;
     Booking: { BookingNo: string; StartTime: string; EndTime: string; ClaimDetail: string | null; CarModel: string } | null;
@@ -123,7 +124,20 @@ export default function QueuePage() {
     const [channelForm, setChannelForm] = useState<Record<string, ChannelSetting>>({});
     const [channelSaving, setChannelSaving] = useState(false);
     const [channelError, setChannelError] = useState<string | null>(null);
+    // แก้ไขข้อมูลคิว (admin)
+    const [serviceTypes, setServiceTypes] = useState<{ ServiceTypeID: number; Name: string }[]>([]);
+    const [editing, setEditing] = useState(false);
+    const [editSaving, setEditSaving] = useState(false);
+    const [editError, setEditError] = useState<string | null>(null);
+    const [editForm, setEditForm] = useState({ customerName: '', customerPhone: '', carRegister: '', carModel: '', serviceTypeId: '', otherService: false, serviceOther: '', repairDetail: '' });
     const dragId = useRef<number | null>(null);
+
+    useEffect(() => {
+        fetch('/api/service-types', { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((d) => { if (d.success) setServiceTypes(d.data); })
+            .catch(() => { /* ไม่มีรายการประเภทบริการ จะแก้ประเภทไม่ได้ */ });
+    }, []);
 
     useEffect(() => {
         const tick = () => setNow(Date.now());
@@ -309,7 +323,59 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
         }
     };
 
+    const startEdit = () => {
+        if (!viewing) return;
+        setEditError(null);
+        setEditForm({
+            customerName: viewing.CustomerName,
+            customerPhone: viewing.CustomerPhone ?? '',
+            carRegister: viewing.CarRegister,
+            carModel: viewing.CarModel ?? '',
+            serviceTypeId: viewing.ServiceTypeID ? String(viewing.ServiceTypeID) : '',
+            otherService: !viewing.ServiceTypeID,
+            serviceOther: viewing.ServiceOther ?? '',
+            repairDetail: viewing.RepairDetail ?? '',
+        });
+        setEditing(true);
+    };
+
+    const saveEdit = async () => {
+        if (!viewing || editSaving) return;
+        const f = editForm;
+        if (!f.customerName.trim()) { setEditError('กรุณากรอกชื่อลูกค้า'); return; }
+        if (f.customerPhone && f.customerPhone.replace(/\D/g, '').length !== 10) { setEditError('กรุณากรอกเบอร์โทร 10 หลัก'); return; }
+        if (f.otherService ? !f.serviceOther.trim() : !f.serviceTypeId) { setEditError('กรุณาเลือกประเภทบริการ หรือระบุบริการที่ต้องการ'); return; }
+        setEditSaving(true);
+        setEditError(null);
+        try {
+            const res = await fetch(`/api/queue/${viewing.QueueID}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    customerName: f.customerName,
+                    customerPhone: f.customerPhone,
+                    carRegister: f.carRegister,
+                    carModel: f.carModel,
+                    repairDetail: f.repairDetail,
+                    otherService: f.otherService,
+                    serviceTypeId: f.otherService ? null : Number(f.serviceTypeId),
+                    serviceOther: f.otherService ? f.serviceOther : undefined,
+                }),
+            });
+            const data = await res.json();
+            if (!data.success) { setEditError(data.error || 'บันทึกไม่สำเร็จ'); return; }
+            setEditing(false);
+            await openDetail(viewing);
+            load();
+        } catch {
+            setEditError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่');
+        } finally {
+            setEditSaving(false);
+        }
+    };
+
     const openDetail = async (item: QueueItem) => {
+        setEditing(false);
         setViewing(item);
         setLogs([]);
         setBookingDetail(null);
@@ -319,6 +385,7 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
             if (data.success) {
                 setLogs(data.data.Logs);
                 setBookingDetail(data.data.Booking ?? null);
+                setViewing((cur) => (cur && cur.QueueID === item.QueueID ? { ...cur, ...data.data } : cur));
             }
         } catch { /* แสดงเฉพาะข้อมูลบนการ์ด */ }
     };
@@ -555,6 +622,10 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                                             <span className="min-w-0 flex-1">
                                                 <span className="block truncate text-sm font-medium text-gray-900">{q.CarRegister}</span>
                                                 <span className="block truncate text-xs text-gray-500">{q.CustomerName} · {timeOf(q.CheckInDate)} น.</span>
+                                                <span className="mt-1 flex flex-wrap gap-1">
+                                                    {q.ServiceType ? <Badge variant="secondary">{q.ServiceType.Name}</Badge> : <Badge variant="warning">อื่นๆ</Badge>}
+                                                    {q.Booking ? <Badge variant="success">จองมาแล้ว</Badge> : <Badge variant="secondary">Walk-in</Badge>}
+                                                </span>
                                             </span>
                                         </button>
                                     ))}
@@ -605,7 +676,39 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                             {viewing.ServiceType ? <Badge variant="secondary">{viewing.ServiceType.Name}</Badge> : <Badge variant="warning">อื่นๆ</Badge>}
                             {viewing.Booking ? <Badge variant="success">จอง {viewing.Booking.BookingNo}</Badge> : <Badge variant="secondary">Walk-in</Badge>}
                             {viewing.NeedsReview && <Badge variant="warning">ไม่พบการจอง - ตรวจสอบ</Badge>}
+                            {!editing && (
+                                <Button size="sm" variant="outline" className="ml-auto" onClick={startEdit}><Pencil className="mr-1 h-4 w-4" />แก้ไขข้อมูล</Button>
+                            )}
                         </div>
+                        {editing ? (
+                            <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+                                <div className="grid gap-3 sm:grid-cols-2">
+                                    <Input label="ชื่อลูกค้า" value={editForm.customerName} maxLength={100} onChange={(e) => setEditForm({ ...editForm, customerName: e.target.value })} />
+                                    <Input label="เบอร์โทร" value={editForm.customerPhone} inputMode="numeric" maxLength={10} onChange={(e) => setEditForm({ ...editForm, customerPhone: e.target.value.replace(/\D/g, '') })} />
+                                    <Input label="ทะเบียนรถ" value={editForm.carRegister} maxLength={20} onChange={(e) => setEditForm({ ...editForm, carRegister: e.target.value })} />
+                                    <Input label="รุ่นรถ" value={editForm.carModel} maxLength={100} onChange={(e) => setEditForm({ ...editForm, carModel: e.target.value })} />
+                                </div>
+                                <Select
+                                    label="ประเภทบริการ"
+                                    value={editForm.otherService ? 'OTHER' : editForm.serviceTypeId}
+                                    onChange={(e) => e.target.value === 'OTHER'
+                                        ? setEditForm({ ...editForm, otherService: true, serviceTypeId: '' })
+                                        : setEditForm({ ...editForm, otherService: false, serviceTypeId: e.target.value })}
+                                    options={[...serviceTypes.map((t) => ({ value: String(t.ServiceTypeID), label: t.Name })), { value: 'OTHER', label: 'อื่นๆ (ระบุเอง)' }]}
+                                />
+                                {editForm.otherService && (
+                                    <Input label="ระบุบริการที่ต้องการ" value={editForm.serviceOther} maxLength={200} onChange={(e) => setEditForm({ ...editForm, serviceOther: e.target.value })} />
+                                )}
+                                <Textarea label="รายละเอียดงานซ่อม" rows={3} value={editForm.repairDetail} maxLength={4000} onChange={(e) => setEditForm({ ...editForm, repairDetail: e.target.value })} />
+                                <p className="text-xs text-gray-500">การเปลี่ยนประเภทบริการไม่เปลี่ยนหมายเลขคิวที่ออกไปแล้ว ทุกการแก้ไขถูกบันทึกในประวัติ</p>
+                                {editError && <p className="flex items-center gap-1 text-sm text-red-600"><AlertCircle className="h-4 w-4" />{editError}</p>}
+                                <div className="flex justify-end gap-2">
+                                    <Button variant="outline" onClick={() => setEditing(false)} disabled={editSaving}>ยกเลิก</Button>
+                                    <Button onClick={saveEdit} isLoading={editSaving}>บันทึก</Button>
+                                </div>
+                            </div>
+                        ) : (
+                        <>
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                             <Detail label="ทะเบียน" value={viewing.CarRegister} />
                             <Detail label="รุ่นรถ" value={viewing.CarModel || viewing.Booking?.CarModel || '-'} />
@@ -619,6 +722,8 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                                 <p className="mb-1 font-medium text-amber-800">บริการที่ลูกค้าระบุ (อื่นๆ)</p>
                                 <p className="whitespace-pre-wrap text-amber-900">{viewing.ServiceOther}</p>
                             </div>
+                        )}
+                        </>
                         )}
                         {bookingDetail && (
                             <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3 text-sm">
