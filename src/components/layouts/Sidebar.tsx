@@ -83,7 +83,7 @@ const menuItems: MenuItem[] = [
         roles: ['SERVICE_CENTER', 'ADMIN'],
     },
     {
-        label: 'รายงานการจอง',
+        label: 'รายงานการจอง / บริการ',
         href: '/service-center/bookings/reports',
         icon: <BarChart3 className="w-5 h-5" />,
         roles: ['SERVICE_CENTER', 'ADMIN', 'CS'],
