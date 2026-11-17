@@ -415,9 +415,17 @@ function CheckInContent() {
                                     autoCapitalize="characters"
                                 />
                                 {plateWarnings.length > 0 && (
-                                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
-                                        <p className="mb-1 flex items-center gap-1 font-semibold"><AlertCircle className="h-4 w-4" />กรุณาตรวจสอบทะเบียนที่พิมพ์</p>
-                                        <ul className="list-disc space-y-0.5 pl-5">{plateWarnings.map((w) => <li key={w}>{w}</li>)}</ul>
+                                    <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <div>
+                                            <p className="font-semibold">กรุณาตรวจสอบทะเบียนที่พิมพ์</p>
+                                            <ul className="mt-1 list-disc space-y-0.5 pl-5">{plateWarnings.map((w) => <li key={w}>{w}</li>)}</ul>
+                                        </div>
+                                    </div>
+                                )}
+                                {error && (
+                                    <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}
                                     </div>
                                 )}
                                 {!lookup && (
@@ -436,10 +444,6 @@ function CheckInContent() {
                                 >
                                     <Sparkles className="h-4 w-4" />ลูกค้ารับรถใหม่ (ยังไม่มีทะเบียน)
                                 </button>
-                            )}
-
-                            {error && (
-                                <div className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>
                             )}
 
                             {/* ขั้นที่ 2: ผลการค้นหา */}
