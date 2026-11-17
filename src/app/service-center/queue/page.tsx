@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card, CardContent, Input, LoadingPage, Modal, Select, Textarea } from '@/components/ui';
 import { Header } from '@/components/layouts';
+import { isProjectTypeMatchingAllowedType } from '@/lib/permissions';
 import { cn, getBangkokDateString } from '@/lib/utils';
 import {
     BOARD_STATUSES,
@@ -28,7 +29,6 @@ interface QueueItem {
     CustomerName: string;
     CustomerPhone: string | null;
     CarModel: string | null;
-    BookingType: string;
     NeedsReview: boolean;
     RepairDetail: string | null;
     Version: number;
@@ -36,6 +36,10 @@ interface QueueItem {
     ServiceTypeID: number | null;
     ServiceType: { Name: string } | null;
     ServiceOther: string | null;
+    LastMileage: number | null;
+    Mileage: number | null;
+    ProjectType: string | null;
+    InventoryItemID: number | null;
     Booking: { BookingNo: string; StartTime: string; EndTime: string; ClaimDetail: string | null; CarModel: string } | null;
 }
 interface BookingDetail { BookingNo: string; StartTime: string; EndTime: string; ProjectType: string | null; Mileage: number; ClaimDetail: string | null; CarModel: string; CustomerName: string; CustomerPhone: string | null }
@@ -49,6 +53,26 @@ const CHANNEL_DEFAULT_NAME: Record<string, string> = {
     WAITING_PAYMENT: 'ช่องชำระเงิน',
 };
 interface QueueLog { LogID: number; FromStatus: string | null; ToStatus: string; ActionByName: string | null; Note: string | null; CreateDate: string }
+const plateText = (p?: string | null) => p || 'ยังไม่มีทะเบียน';
+// โครงการว่าง = ยังไม่ระบุ (เช่น เรียก EV7 ไม่ได้ตอนเช็คอิน) ให้แอดมินกำหนดภายหลัง
+
+// รุ่นรถ: รูปแบบชื่อและกติกากรองเดียวกับหน้าจองของแอดมิน (bay-booking) — EV7/Lineman เห็นรุ่นแท็กซี่ (รหัสรุ่น 11, 12, 13), Retail เห็นรุ่นอื่น
+// ต่างกันที่ดูจากข้อความ "โครงการ" (ด้วย isProjectTypeMatchingAllowedType ที่มีอยู่แล้ว) แทนปุ่มประเภทการจอง; ไม่ระบุ/ไม่ตรงประเภทไหน = ทุกรุ่น
+interface CarModelRow { ModelID: number; ModelName: string; Brand: string | null }
+const carModelLabel = (m: CarModelRow) => (m.Brand ? `${m.Brand} ${m.ModelName}` : m.ModelName);
+function carModelsForProject(models: CarModelRow[], project: string): CarModelRow[] {
+    const isTaxi = (m: CarModelRow) => [11, 12, 13].includes(m.ModelID);
+    if (isProjectTypeMatchingAllowedType(project, 'EV7') || isProjectTypeMatchingAllowedType(project, 'LINEMAN')) return models.filter(isTaxi);
+    if (isProjectTypeMatchingAllowedType(project, 'RETAIL')) return models.filter((m) => !isTaxi(m));
+    return models;
+}
+
+interface VehicleSuggestion { InventoryItemID: number; RegisterNo: string; Model: string; CustomerName: string; ProjectType: string }
+type PlatePreview =
+    | { kind: 'none' }
+    | { kind: 'notfound' | 'error'; duplicateLabel: string | null; unlinkBookingNo?: string | null }
+    | { kind: 'booking'; duplicateLabel: string | null; unlinkBookingNo?: string | null; booking: { bookingNo: string; startTime: string; endTime: string; serviceTypeName: string | null; carModel: string; customerName: string; customerPhone: string | null; projectType: string | null; mileage: number | null } }
+    | { kind: 'vehicle'; duplicateLabel: string | null; unlinkBookingNo?: string | null; vehicle: { carModel: string | null; customerName: string | null; projectType: string | null } };
 interface BranchOption { BranchID: number; BranchName: string }
 
 const BOARD_COLUMNS: QueueStatus[] = BOARD_STATUSES.filter((s) => s !== 'DONE');
@@ -125,11 +149,20 @@ export default function QueuePage() {
     const [channelSaving, setChannelSaving] = useState(false);
     const [channelError, setChannelError] = useState<string | null>(null);
     // แก้ไขข้อมูลคิว (admin)
-    const [serviceTypes, setServiceTypes] = useState<{ ServiceTypeID: number; Name: string }[]>([]);
+    const [serviceTypes, setServiceTypes] = useState<{ ServiceTypeID: number; Name: string; RequiresMileage?: boolean }[]>([]);
+    const [carModelChoices, setCarModelChoices] = useState<CarModelRow[]>([]);
+    const [mileageChoices, setMileageChoices] = useState<{ Value: number; Label: string }[]>([]);
     const [editing, setEditing] = useState(false);
     const [editSaving, setEditSaving] = useState(false);
     const [editError, setEditError] = useState<string | null>(null);
-    const [editForm, setEditForm] = useState({ customerName: '', customerPhone: '', carRegister: '', carModel: '', serviceTypeId: '', otherService: false, serviceOther: '', repairDetail: '' });
+    const [editNotices, setEditNotices] = useState<string[]>([]);
+    // ช่องทะเบียนแบบ autocomplete + ตัวอย่างใบจอง/ข้อมูลรถ (ยังไม่บันทึก)
+    const [plateSuggestions, setPlateSuggestions] = useState<VehicleSuggestion[]>([]);
+    const [showPlateSuggest, setShowPlateSuggest] = useState(false);
+    const [plateSearching, setPlateSearching] = useState(false);
+    const [platePreview, setPlatePreview] = useState<PlatePreview | null>(null);
+    const suppressSuggestFor = useRef<string | null>(null);
+    const [editForm, setEditForm] = useState({ customerName: '', customerPhone: '', carRegister: '', carModel: '', serviceTypeId: '', otherService: false, serviceOther: '', repairDetail: '', projectType: '', lastMileage: '', mileage: '' });
     const dragId = useRef<number | null>(null);
 
     useEffect(() => {
@@ -137,6 +170,14 @@ export default function QueuePage() {
             .then((r) => r.json())
             .then((d) => { if (d.success) setServiceTypes(d.data); })
             .catch(() => { /* ไม่มีรายการประเภทบริการ จะแก้ประเภทไม่ได้ */ });
+        fetch('/api/car-models', { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((d) => { if (d.success && Array.isArray(d.data)) setCarModelChoices(d.data); })
+            .catch(() => { /* ไม่มีรายการรุ่นรถ: ใช้ค่าปัจจุบันเท่านั้น */ });
+        fetch('/api/mileages', { cache: 'no-store' })
+            .then((r) => r.json())
+            .then((d) => { if (d.success && Array.isArray(d.raw)) setMileageChoices(d.raw); })
+            .catch(() => { /* ไม่มีตัวเลือกระยะเช็ค ยังพิมพ์เองไม่ได้ */ });
     }, []);
 
     useEffect(() => {
@@ -335,9 +376,44 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
             otherService: !viewing.ServiceTypeID,
             serviceOther: viewing.ServiceOther ?? '',
             repairDetail: viewing.RepairDetail ?? '',
+            projectType: viewing.ProjectType ?? '',
+            lastMileage: viewing.LastMileage != null ? String(viewing.LastMileage) : '',
+            mileage: viewing.Mileage != null ? String(viewing.Mileage) : '',
         });
         setEditing(true);
     };
+
+    // พิมพ์ทะเบียนในฟอร์มแก้ไข: ค้นรายการรถ (EV7) แบบ autocomplete + ดูใบจอง/ข้อมูลรถของทะเบียนนั้นทันที ไม่ต้องกดบันทึก
+    const editQueueId = viewing?.QueueID;
+    const editOriginalPlate = viewing?.CarRegister ?? '';
+    useEffect(() => {
+        if (!editing || !editQueueId) { setPlatePreview(null); setPlateSuggestions([]); setShowPlateSuggest(false); return; }
+        const q = editForm.carRegister.trim();
+        if (q.length < 2 || q === editOriginalPlate) { setPlatePreview(null); setPlateSuggestions([]); setShowPlateSuggest(false); return; }
+        let cancelled = false;
+        const timer = setTimeout(async () => {
+            setPlateSearching(true);
+            const skipSuggest = suppressSuggestFor.current === q;
+            try {
+                const [prev, sug] = await Promise.all([
+                    fetch(`/api/queue/${editQueueId}/plate-preview?plate=${encodeURIComponent(q)}`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
+                    skipSuggest ? Promise.resolve(null) : fetch(`/api/vehicles/lookup?q=${encodeURIComponent(q)}`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
+                ]);
+                if (cancelled) return;
+                setPlatePreview(prev?.success ? prev.data : null);
+                if (!skipSuggest) {
+                    const list: VehicleSuggestion[] = sug?.success && Array.isArray(sug.data) ? sug.data : [];
+                    setPlateSuggestions(list);
+                    setShowPlateSuggest(list.length > 0);
+                }
+            } finally {
+                if (!cancelled) setPlateSearching(false);
+            }
+        }, 350);
+        return () => { cancelled = true; clearTimeout(timer); };
+    }, [editing, editQueueId, editOriginalPlate, editForm.carRegister]);
+
+    const editShowsMileage = !editForm.otherService && !!serviceTypes.find((t) => String(t.ServiceTypeID) === editForm.serviceTypeId)?.RequiresMileage;
 
     const saveEdit = async () => {
         if (!viewing || editSaving) return;
@@ -357,6 +433,8 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                     carRegister: f.carRegister,
                     carModel: f.carModel,
                     repairDetail: f.repairDetail,
+                    projectType: f.projectType,
+                    ...(editShowsMileage ? { lastMileage: f.lastMileage, mileage: f.mileage } : {}),
                     otherService: f.otherService,
                     serviceTypeId: f.otherService ? null : Number(f.serviceTypeId),
                     serviceOther: f.otherService ? f.serviceOther : undefined,
@@ -366,6 +444,7 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
             if (!data.success) { setEditError(data.error || 'บันทึกไม่สำเร็จ'); return; }
             setEditing(false);
             await openDetail(viewing);
+            setEditNotices(Array.isArray(data.notices) ? data.notices : []);
             load();
         } catch {
             setEditError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่');
@@ -376,6 +455,7 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
 
     const openDetail = async (item: QueueItem) => {
         setEditing(false);
+        setEditNotices([]);
         setViewing(item);
         setLogs([]);
         setBookingDetail(null);
@@ -620,7 +700,7 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                                         >
                                             <span className="rounded-lg bg-white px-2.5 py-1 text-lg font-bold text-gray-700 shadow-sm">{q.QueueLabel}</span>
                                             <span className="min-w-0 flex-1">
-                                                <span className="block truncate text-sm font-medium text-gray-900">{q.CarRegister}</span>
+                                                <span className="block truncate text-sm font-medium text-gray-900">{plateText(q.CarRegister)}</span>
                                                 <span className="block truncate text-xs text-gray-500">{q.CustomerName} · {timeOf(q.CheckInDate)} น.</span>
                                                 <span className="mt-1 flex flex-wrap gap-1">
                                                     {q.ServiceType ? <Badge variant="secondary">{q.ServiceType.Name}</Badge> : <Badge variant="warning">อื่นๆ</Badge>}
@@ -652,9 +732,10 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
             {/* บันทึกงานซ่อมก่อนรับเข้าซ่อม */}
             <Modal isOpen={!!detailFor} onClose={() => setDetailFor(null)} title={`บันทึกงานซ่อม ${detailFor?.QueueLabel ?? ''}`} size="lg">
                 <div className="space-y-3">
-                    <p className="text-sm text-gray-600">{detailFor?.CarRegister} · {detailFor?.CustomerName}</p>
+                    <p className="text-sm text-gray-600">{plateText(detailFor?.CarRegister)} · {detailFor?.CustomerName}</p>
                     <Textarea
                         label="รายละเอียดงานซ่อม"
+                        placeholder="ระบุรายละเอียดงานซ่อม เช่น อาการที่แจ้ง หรือรายการที่ต้องตรวจเช็ค"
                         rows={5}
                         value={repairDetail}
                         onChange={(e) => setRepairDetail(e.target.value)}
@@ -668,28 +749,132 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
             </Modal>
 
             {/* รายละเอียดคิว + ประวัติ */}
-            <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title={viewing ? `คิว ${viewing.QueueLabel}` : ''} size="lg">
+            <Modal isOpen={!!viewing} onClose={() => setViewing(null)} title={viewing ? `คิว ${viewing.QueueLabel}` : ''} size="2xl">
                 {viewing && (
                     <div className="space-y-4">
                         <div className="flex flex-wrap items-center gap-2">
                             <Badge variant="info">{QUEUE_STATUS_LABEL[viewing.Status]}</Badge>
                             {viewing.ServiceType ? <Badge variant="secondary">{viewing.ServiceType.Name}</Badge> : <Badge variant="warning">อื่นๆ</Badge>}
                             {viewing.Booking ? <Badge variant="success">จอง {viewing.Booking.BookingNo}</Badge> : <Badge variant="secondary">Walk-in</Badge>}
+                            <Badge variant="default">{viewing.ProjectType?.trim() || 'ไม่ระบุโครงการ'}</Badge>
                             {viewing.NeedsReview && <Badge variant="warning">ไม่พบการจอง - ตรวจสอบ</Badge>}
                             {!editing && (
                                 <Button size="sm" variant="outline" className="ml-auto" onClick={startEdit}><Pencil className="mr-1 h-4 w-4" />แก้ไขข้อมูล</Button>
                             )}
                         </div>
+                        {editNotices.length > 0 && (
+                            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                                <p className="mb-1 flex items-center gap-1.5 font-medium"><CheckCircle2 className="h-4 w-4" />ผลการค้นหาจากทะเบียนที่แก้ไข</p>
+                                <ul className="list-disc space-y-0.5 pl-5 text-xs">{editNotices.map((n) => <li key={n}>{n}</li>)}</ul>
+                            </div>
+                        )}
                         {editing ? (
                             <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
                                 <div className="grid gap-3 sm:grid-cols-2">
-                                    <Input label="ชื่อลูกค้า" value={editForm.customerName} maxLength={100} onChange={(e) => setEditForm({ ...editForm, customerName: e.target.value })} />
-                                    <Input label="เบอร์โทร" value={editForm.customerPhone} inputMode="numeric" maxLength={10} onChange={(e) => setEditForm({ ...editForm, customerPhone: e.target.value.replace(/\D/g, '') })} />
-                                    <Input label="ทะเบียนรถ" value={editForm.carRegister} maxLength={20} onChange={(e) => setEditForm({ ...editForm, carRegister: e.target.value })} />
-                                    <Input label="รุ่นรถ" value={editForm.carModel} maxLength={100} onChange={(e) => setEditForm({ ...editForm, carModel: e.target.value })} />
+                                    <Input label="ชื่อลูกค้า" placeholder="ระบุชื่อ-นามสกุลลูกค้า" value={editForm.customerName} maxLength={100} onChange={(e) => setEditForm({ ...editForm, customerName: e.target.value })} />
+                                    <Input label="เบอร์โทร" placeholder="ระบุเบอร์โทร 10 หลัก" value={editForm.customerPhone} inputMode="numeric" maxLength={10} onChange={(e) => setEditForm({ ...editForm, customerPhone: e.target.value.replace(/\D/g, '') })} />
+                                    <div className="relative">
+                                        <Input
+                                            label="ทะเบียนรถ (พิมพ์เพื่อค้นหา)"
+                                            placeholder={viewing.CarRegister ? 'ระบุทะเบียนรถ เช่น กข 1234' : 'ยังไม่มีทะเบียน — กรอกเมื่อทราบ'}
+                                            value={editForm.carRegister}
+                                            maxLength={20}
+                                            autoComplete="off"
+                                            onChange={(e) => { suppressSuggestFor.current = null; setEditForm({ ...editForm, carRegister: e.target.value }); }}
+                                            onFocus={() => { if (plateSuggestions.length > 0) setShowPlateSuggest(true); }}
+                                            onBlur={() => { setTimeout(() => setShowPlateSuggest(false), 200); }}
+                                        />
+                                        {plateSearching && <div className="absolute right-3 top-9 animate-pulse text-xs text-gray-500">กำลังค้นหา...</div>}
+                                        {showPlateSuggest && plateSuggestions.length > 0 && (
+                                            <div className="absolute left-0 right-0 z-10 mt-1 max-h-48 overflow-y-auto rounded-xl border-2 border-blue-300 bg-white shadow-lg">
+                                                {plateSuggestions.map((v) => (
+                                                    <button
+                                                        key={v.InventoryItemID}
+                                                        type="button"
+                                                        onMouseDown={() => {
+                                                            suppressSuggestFor.current = v.RegisterNo.trim();
+                                                            setEditForm((f) => {
+                                                                // เหมือนหน้าจอง: เลือกรถแล้วเติมรุ่นรถ (จับคู่ชื่อกับรายการ) และ Project Type — เติมเฉพาะช่องที่ยังว่าง ไม่ทับที่กรอกไว้
+                                                                const key = (v.Model || '').toLowerCase().replace(/\s+/g, '');
+                                                                const match = key ? carModelChoices.find((m) => { const n = carModelLabel(m).toLowerCase().replace(/\s+/g, ''); return n === key || n.includes(key) || key.includes(n); }) : null;
+                                                                return {
+                                                                    ...f,
+                                                                    carRegister: v.RegisterNo,
+                                                                    carModel: f.carModel || (match ? carModelLabel(match) : v.Model || ''),
+                                                                    projectType: f.projectType || v.ProjectType || '',
+                                                                };
+                                                            });
+                                                            setShowPlateSuggest(false);
+                                                        }}
+                                                        className="w-full border-b border-gray-100 px-4 py-3 text-left transition-colors last:border-0 hover:bg-blue-50"
+                                                    >
+                                                        <span className="text-sm font-bold text-gray-900">{v.RegisterNo}</span>
+                                                        <span className="ml-2 text-xs text-gray-600">{v.Model} • {v.CustomerName}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <Select
+                                        label="รุ่นรถ"
+                                        value={editForm.carModel}
+                                        onChange={(e) => setEditForm({ ...editForm, carModel: e.target.value })}
+                                        options={(() => {
+                                            // รายการรุ่นรถเดียวกับหน้าจองของแอดมิน (รูปแบบ "ยี่ห้อ รุ่น"); ค่าปัจจุบันที่ไม่อยู่ในรายการ (เช่น ชื่อจาก EV7) คงไว้เป็นตัวเลือก
+                                            // กรองตามโครงการเหมือนหน้าจอง: EV7/Line Man = รุ่นแท็กซี่, Retail = รุ่นอื่น, ไม่ระบุ/โครงการอื่น = ทุกรุ่น
+                                            const names = carModelsForProject(carModelChoices, editForm.projectType).map(carModelLabel);
+                                            const extra = editForm.carModel && !names.includes(editForm.carModel) ? [editForm.carModel] : [];
+                                            return [{ value: '', label: 'เลือกรุ่นรถ' }, ...[...extra, ...names].map((n) => ({ value: n, label: n }))];
+                                        })()}
+                                    />
                                 </div>
+                                {platePreview && platePreview.kind !== 'none' && (
+                                    <div className={cn('rounded-lg border p-3 text-sm', platePreview.kind === 'booking' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : platePreview.kind === 'vehicle' ? 'border-blue-200 bg-blue-50 text-blue-900' : 'border-gray-200 bg-white text-gray-600')}>
+                                        {platePreview.duplicateLabel && (
+                                            <p className="mb-1.5 flex items-center gap-1 text-xs font-medium text-red-600"><AlertCircle className="h-3.5 w-3.5" />ทะเบียนนี้มีคิว {platePreview.duplicateLabel} ที่ยังไม่ปิดอยู่แล้ว บันทึกไม่ได้</p>
+                                        )}
+                                        {platePreview.unlinkBookingNo && (
+                                            <p className="mb-1.5 flex items-start gap-1 rounded-md bg-amber-100 px-2 py-1.5 text-xs font-medium text-amber-900"><AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />ทะเบียนนี้ไม่ตรงกับใบจอง {platePreview.unlinkBookingNo} ที่ผูกกับคิวนี้ เมื่อกดบันทึกจะปลดใบจองนั้นออก (ใบจองกลับมาใช้เช็คอินได้) และล้างข้อมูลที่มาจากใบจองนั้น ส่วนชื่อและเบอร์ไม่เปลี่ยน</p>
+                                        )}
+                                        {platePreview.kind === 'booking' && (
+                                            <>
+                                                <p className="mb-1 flex items-center gap-1.5 font-medium"><CalendarCheck className="h-4 w-4" />พบใบจอง {platePreview.booking.bookingNo} — จะผูกกับคิวนี้เมื่อกดบันทึก</p>
+                                                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                                    <Detail label="ผู้จอง" value={platePreview.booking.customerName} />
+                                                    <Detail label="เวลานัด" value={`${platePreview.booking.startTime} - ${platePreview.booking.endTime}`} />
+                                                    <Detail label="บริการ" value={platePreview.booking.serviceTypeName ?? '-'} />
+                                                    <Detail label="รุ่นรถ" value={platePreview.booking.carModel || '-'} />
+                                                    <Detail label="โครงการ" value={platePreview.booking.projectType || '-'} />
+                                                    <Detail label="ระยะเช็ค" value={platePreview.booking.mileage ? `${platePreview.booking.mileage.toLocaleString('en-US')} กม.` : '-'} />
+                                                </dl>
+                                                <p className="mt-1.5 text-xs opacity-80">ระบบจะเติมเฉพาะช่องที่ยังว่าง ไม่ทับข้อมูลที่กรอกไว้</p>
+                                            </>
+                                        )}
+                                        {platePreview.kind === 'vehicle' && (
+                                            <>
+                                                <p className="mb-1 flex items-center gap-1.5 font-medium"><Car className="h-4 w-4" />พบข้อมูลรถในระบบ EV7 (ไม่พบใบจองของวันนี้)</p>
+                                                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                                    <Detail label="รุ่นรถ" value={platePreview.vehicle.carModel || '-'} />
+                                                    <Detail label="โครงการ" value={platePreview.vehicle.projectType || '-'} />
+                                                    <Detail label="ลูกค้าในระบบ" value={platePreview.vehicle.customerName || '-'} />
+                                                </dl>
+                                                <p className="mt-1.5 text-xs opacity-80">ระบบจะเติมเฉพาะรุ่นรถ/VIN/โครงการที่ยังว่าง เมื่อกดบันทึก ไม่เปลี่ยนชื่อ-เบอร์ที่ลูกค้ากรอก</p>
+                                            </>
+                                        )}
+                                        {platePreview.kind === 'notfound' && <p className="text-xs">ไม่พบใบจองของวันนี้หรือข้อมูลรถในระบบสำหรับทะเบียนนี้</p>}
+                                        {platePreview.kind === 'error' && <p className="text-xs">ค้นข้อมูลจาก EV7 ไม่สำเร็จในขณะนี้ (ยังบันทึกทะเบียนได้)</p>}
+                                    </div>
+                                )}
+                                <Input
+                                    label="โครงการ"
+                                    placeholder="EV7, Grab, Lineman, Retail"
+                                    value={editForm.projectType}
+                                    maxLength={100}
+                                    onChange={(e) => setEditForm({ ...editForm, projectType: e.target.value })}
+                                />
                                 <Select
                                     label="ประเภทบริการ"
+                                    placeholder="เลือกประเภทบริการ"
                                     value={editForm.otherService ? 'OTHER' : editForm.serviceTypeId}
                                     onChange={(e) => e.target.value === 'OTHER'
                                         ? setEditForm({ ...editForm, otherService: true, serviceTypeId: '' })
@@ -697,9 +882,21 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                                     options={[...serviceTypes.map((t) => ({ value: String(t.ServiceTypeID), label: t.Name })), { value: 'OTHER', label: 'อื่นๆ (ระบุเอง)' }]}
                                 />
                                 {editForm.otherService && (
-                                    <Input label="ระบุบริการที่ต้องการ" value={editForm.serviceOther} maxLength={200} onChange={(e) => setEditForm({ ...editForm, serviceOther: e.target.value })} />
+                                    <Input label="ระบุบริการที่ต้องการ" placeholder="กรุณาระบุบริการที่ต้องการ" value={editForm.serviceOther} maxLength={200} onChange={(e) => setEditForm({ ...editForm, serviceOther: e.target.value })} />
                                 )}
-                                <Textarea label="รายละเอียดงานซ่อม" rows={3} value={editForm.repairDetail} maxLength={4000} onChange={(e) => setEditForm({ ...editForm, repairDetail: e.target.value })} />
+                                {editShowsMileage && (
+                                    <div className="grid gap-3 sm:grid-cols-2">
+                                        <Input label="เลขไมล์ล่าสุด (กม.)" placeholder="ระบุเลขไมล์ล่าสุดของรถยนต์" value={editForm.lastMileage} inputMode="numeric" maxLength={6} onChange={(e) => setEditForm({ ...editForm, lastMileage: e.target.value.replace(/\D/g, '') })} />
+                                        <Select
+                                            label="ระยะเช็คที่เลือก"
+                                            value={editForm.mileage}
+                                            onChange={(e) => setEditForm({ ...editForm, mileage: e.target.value })}
+                                            placeholder="เลือกระยะเช็ค"
+                                            options={[...mileageChoices.map((m) => ({ value: String(m.Value), label: m.Label })), ...(editForm.mileage && !mileageChoices.some((m) => String(m.Value) === editForm.mileage) ? [{ value: editForm.mileage, label: `${Number(editForm.mileage).toLocaleString('en-US')} กม.` }] : [])]}
+                                        />
+                                    </div>
+                                )}
+                                <Textarea label="รายละเอียดงานซ่อม" placeholder="ระบุรายละเอียดงานซ่อม เช่น อาการที่แจ้ง หรือรายการที่ต้องตรวจเช็ค" rows={3} value={editForm.repairDetail} maxLength={4000} onChange={(e) => setEditForm({ ...editForm, repairDetail: e.target.value })} />
                                 <p className="text-xs text-gray-500">การเปลี่ยนประเภทบริการไม่เปลี่ยนหมายเลขคิวที่ออกไปแล้ว ทุกการแก้ไขถูกบันทึกในประวัติ</p>
                                 {editError && <p className="flex items-center gap-1 text-sm text-red-600"><AlertCircle className="h-4 w-4" />{editError}</p>}
                                 <div className="flex justify-end gap-2">
@@ -710,7 +907,10 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                         ) : (
                         <>
                         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                            <Detail label="ทะเบียน" value={viewing.CarRegister} />
+                            <Detail label="ทะเบียน" value={plateText(viewing.CarRegister)} />
+                            <Detail label="โครงการ" value={viewing.ProjectType?.trim() || '-'} />
+                            {viewing.Mileage != null && <Detail label="ระยะเช็ค" value={`${viewing.Mileage.toLocaleString('en-US')} กม.`} />}
+                            {viewing.LastMileage != null && <Detail label="เลขไมล์ล่าสุด" value={`${viewing.LastMileage.toLocaleString('en-US')} กม.`} />}
                             <Detail label="รุ่นรถ" value={viewing.CarModel || viewing.Booking?.CarModel || '-'} />
                             <Detail label="ลูกค้า" value={viewing.CustomerName} />
                             <Detail label="เบอร์โทร" value={viewing.CustomerPhone || '-'} />
@@ -840,7 +1040,7 @@ function QueueCard({ item, now, busy, called, onOpen, onMove, onClose, onCall, o
                 </div>
             </div>
             <button type="button" onClick={onOpen} className="block w-full text-left">
-                <p className="mt-2 flex items-center gap-1.5 text-base font-bold text-gray-900"><Car className="h-4 w-4 text-gray-400" />{item.CarRegister}</p>
+                <p className="mt-2 flex items-center gap-1.5 text-base font-bold text-gray-900"><Car className="h-4 w-4 text-gray-400" />{plateText(item.CarRegister)}</p>
                 {(item.CarModel || item.Booking?.CarModel) && <p className="text-xs text-gray-500">{item.CarModel || item.Booking?.CarModel}</p>}
                 <p className="mt-1 text-sm text-gray-700">{item.CustomerName}</p>
             </button>
