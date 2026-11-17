@@ -19,6 +19,11 @@ async function modelMileageOptions(carModel: string | null | undefined) {
     return ids.length ? getMileageOptions({ modelIds: ids }) : null;
 }
 
+/** ทะเบียนที่พิมพ์ไม่ตรงกับทะเบียนเต็มของรถที่ EV7 พบ = พิมพ์ไม่ครบ */
+function isPartialPlate(typed: string, registerNo: string | null | undefined): boolean {
+    return !!registerNo && queuePlate(registerNo) !== typed;
+}
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ branchCode: string }> }) {
     if (!rateLimit(`lookup:${getClientIp(request)}`, 30, 60_000)) {
         return NextResponse.json({ success: false, error: 'คำขอมากเกินไป กรุณาลองใหม่ภายหลัง' }, { status: 429 });
@@ -35,18 +40,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }
         const queueDate = getTodayQueueDate();
 
-        const existing = await prisma.cM_Queue.findFirst({
-            where: { BranchID: branch.BranchID, QueueDate: queueDate, CarRegister: plate, Status: { in: ACTIVE_STATUSES } },
-            select: { QueueID: true },
-        });
-        if (existing) {
+        // คิวเดิมของวันนี้ -> การจอง ด้วยทะเบียนที่ระบุ (เรียกซ้ำอีกรอบด้วยทะเบียนเต็มจาก EV7 กรณีลูกค้าพิมพ์แค่เลขท้าย)
+        const findExisting = async (p: string) => {
+            const existing = await prisma.cM_Queue.findFirst({
+                where: { BranchID: branch.BranchID, QueueDate: queueDate, CarRegister: p, Status: { in: ACTIVE_STATUSES } },
+                select: { QueueID: true },
+            });
+            if (!existing) return null;
             return NextResponse.json({
                 success: true,
                 data: { kind: 'ticket', ticketKey: signTicket(existing.QueueID), ticket: await getTicketView(existing.QueueID, branch.BranchID) },
             });
-        }
+        };
+        const ticketRes = await findExisting(plate);
+        if (ticketRes) return ticketRes;
 
         const booking = await findTodayBooking(branch.BranchID, plate, queueDate);
+        let vehicle: Awaited<ReturnType<typeof lookupVehicle>> = null;
+        if (!booking) {
+            vehicle = await lookupVehicle(plate);
+            // EV7 ค้นแบบบางส่วนได้ (เช่น เลขท้าย) แต่ต้องให้ลูกค้าพิมพ์ทะเบียนครบ ไม่เปิดเผยข้อมูลจากการเดา
+            if (vehicle && isPartialPlate(plate, vehicle.registerNo)) {
+                return NextResponse.json({ success: false, error: 'กรุณากรอกทะเบียนรถให้ครบ (รวมตัวอักษรนำหน้า)' }, { status: 400 });
+            }
+        }
         if (booking) {
             return NextResponse.json({
                 success: true,
@@ -69,7 +86,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             });
         }
 
-        const vehicle = await lookupVehicle(plate);
         if (vehicle) {
             return NextResponse.json({
                 success: true,

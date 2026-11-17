@@ -1,6 +1,8 @@
 // Vehicle lookup ฝั่ง server สำหรับ public check-in + ฟังก์ชัน mask ข้อมูลส่วนบุคคล
 
 export interface VehicleInfo {
+    /** ทะเบียนเต็มตามระบบ EV7 (ลูกค้าอาจค้นด้วยเลขท้ายอย่างเดียว) */
+    registerNo: string | null;
     vinNo: string | null;
     carModel: string | null;
     inventoryItemId: number | null;
@@ -36,6 +38,7 @@ export async function lookupVehicleDetailed(plate: string): Promise<VehicleLooku
         if (json.Status === 1 && json.Data) {
             return {
                 vehicle: {
+                    registerNo: json.Data.RegisterNo ? String(json.Data.RegisterNo) : null,
                     vinNo: json.Data.VinNo ?? null,
                     carModel: json.Data.Model ?? null,
                     inventoryItemId: json.Data.InventoryItemID ?? null,

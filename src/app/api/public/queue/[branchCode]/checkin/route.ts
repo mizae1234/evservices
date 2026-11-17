@@ -77,10 +77,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             });
         }
 
-        const plate = queuePlate(String(body.carRegister ?? ''));
+        const typedPlate = queuePlate(String(body.carRegister ?? ''));
         const customerName = String(body.customerName ?? '').trim();
         const phone = String(body.customerPhone ?? '').replace(/\D/g, '');
-        if (plate.length < 2 || plate.length > 20) {
+        if (typedPlate.length < 2 || typedPlate.length > 20) {
             return NextResponse.json({ success: false, error: 'กรุณากรอกทะเบียนรถให้ถูกต้อง' }, { status: 400 });
         }
         if (customerName.length > 100) {
@@ -105,7 +105,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             return NextResponse.json({ success: false, error: 'กรุณาระบุบริการที่ต้องการ' }, { status: 400 });
         }
 
+        const plate = typedPlate;
         const vehicle = await lookupVehicle(plate);
+        // EV7 ค้นแบบบางส่วนได้ แต่ต้องพิมพ์ทะเบียนครบ ไม่บันทึกคิวด้วยเลขที่พิมพ์ไม่ครบ
+        if (vehicle?.registerNo && queuePlate(vehicle.registerNo) !== plate) {
+            return NextResponse.json({ success: false, error: 'กรุณากรอกทะเบียนรถให้ครบ (รวมตัวอักษรนำหน้า)' }, { status: 400 });
+        }
         const { queue, created } = await checkInQueue({
             branchId: branch.BranchID,
             carRegister: plate,
