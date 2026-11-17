@@ -9,6 +9,7 @@ import { DaySchedule, suggestSlots, timeToMinutes } from '@/lib/slot-suggest';
 import { queuePlate } from '@/lib/queue-service';
 import { lookupVehicleDetailed, VehicleInfo } from '@/lib/queue-vehicle';
 import { MAX_BOOKING_HORIZON_DAYS } from '@/lib/mileage-rule';
+import { matchCarModelIds } from '@/lib/queue-mileage';
 
 export class SelfBookingError extends Error {
     constructor(message: string, public status = 400, public code?: string) {
@@ -156,13 +157,12 @@ export async function buildDaySchedules(branchId: number, fromDate: string, toDa
     return days;
 }
 
-interface RateRow { MileageID: number | null; DurationMinutes: number; CarModelID: number | null; CarModel: { ModelName: string; Brand: string | null } | null; Mileage: { Value: number; Label: string } | null }
+interface RateRow { MileageID: number | null; DurationMinutes: number; CarModelID: number | null; Mileage: { Value: number; Label: string } | null }
 
-/** เลือก flat rate: ของรุ่นรถตัวเองก่อน, ถัดมารุ่นกลาง (ไม่ระบุรุ่น), สุดท้ายตัวแรกที่มี */
-function pickRate(rates: RateRow[], carModel: string | null): RateRow | null {
+/** เลือก flat rate: ของรุ่นรถตัวเองก่อน (จับคู่ชื่อรุ่นแบบเดียวกับหน้าเช็คอิน), ถัดมารุ่นกลาง (ไม่ระบุรุ่น), สุดท้ายตัวแรกที่มี */
+function pickRate(rates: RateRow[], modelIds: number[]): RateRow | null {
     if (rates.length === 0) return null;
-    const model = carModel?.trim();
-    const own = model ? rates.find((r) => r.CarModel && (r.CarModel.ModelName === model || `${r.CarModel.Brand ?? ''} ${r.CarModel.ModelName}`.trim() === model)) : null;
+    const own = modelIds.length ? rates.find((r) => r.CarModelID != null && modelIds.includes(r.CarModelID)) : null;
     return own ?? rates.find((r) => r.CarModelID == null) ?? rates[0];
 }
 
@@ -179,10 +179,10 @@ export async function resolveService(serviceTypeId: number, mileageId: number | 
             IsActive: true,
             ...(serviceType.RequiresMileage ? { MileageID: mileageId ?? -1 } : { MileageID: null }),
         },
-        select: { MileageID: true, DurationMinutes: true, CarModelID: true, CarModel: { select: { ModelName: true, Brand: true } }, Mileage: { select: { Value: true, Label: true } } },
+        select: { MileageID: true, DurationMinutes: true, CarModelID: true, Mileage: { select: { Value: true, Label: true } } },
     });
     if (serviceType.RequiresMileage && mileageId == null) throw new SelfBookingError('กรุณาเลือกระยะเช็ค');
-    const rate = pickRate(rates, carModel);
+    const rate = pickRate(rates, await matchCarModelIds(carModel));
     if (serviceType.RequiresMileage && !rate) throw new SelfBookingError('ไม่พบข้อมูลระยะเช็คที่เลือก');
     // ไม่ต้องใช้ไมล์ & ไม่มี flat rate → 120 นาที (ตามหน้า bay-booking ของพนักงาน)
     const duration = rate && rate.DurationMinutes > 0 ? rate.DurationMinutes : 120;

@@ -240,7 +240,15 @@ export default function SelfBookingPage() {
         setCarModel(r.data.vehicle.carModel ?? '');
     };
 
-    const goDetails = () => { setError(''); setStep('details'); };
+    const goDetails = async () => {
+        setError(''); setBusy(true);
+        // ตัวเลือกระยะเช็คขึ้นกับรุ่นรถ: โหลดใหม่ตามรุ่นที่พบ/ที่กรอก
+        const opt = await api<Options>(`/api/public/booking/options?carModel=${encodeURIComponent(carModel)}`);
+        setBusy(false);
+        if (opt.ok && opt.data) setOptions(opt.data);
+        setMileageId('');
+        setStep('details');
+    };
 
     const doSuggest = async () => {
         setError(''); setBusy(true); setSelected(null);
