@@ -24,6 +24,7 @@ import { CSStatusModal } from '@/components/bookings/modals/CSStatusModal';
 import { RescheduleModal } from '@/components/bookings/modals/RescheduleModal';
 import { BookingDetailModal } from '@/components/bookings/modals/BookingDetailModal';
 import { isCSRole } from '@/lib/permissions';
+import { QUEUE_STATUS_LABEL, type QueueStatus } from '@/lib/queue-status';
 import { SlotOverrideModal } from '@/components/bookings/modals/SlotOverrideModal';
 import { DurationExtensionModal } from '@/components/bookings/modals/DurationExtensionModal';
 import { ActionConfirmModal, defaultActionModal } from '@/components/bookings/modals/ActionConfirmModal';
@@ -55,6 +56,7 @@ interface Booking {
     CSStatus: string;
     BayID?: number | null;
     Logs?: any[];
+    Queues?: { QueueLabel: string; Status: string }[];
 }
 
 function BookingsPageContent() {
@@ -670,74 +672,75 @@ function BookingsPageContent() {
                     <Card>
                         <CardContent className="p-0">
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                                <table className="w-full min-w-[1100px] text-left border-collapse">
                                     <thead>
                                         <tr className="bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase">
-                                            <th className="px-6 py-4">เลขจอง</th>
-                                            <th className="px-6 py-4">เวลา</th>
-                                            <th className="px-6 py-4">สาขา</th>
-                                            <th className="px-6 py-4">ทะเบียนรถ</th>
-                                            <th className="px-6 py-4">ลูกค้า</th>
-                                            <th className="px-6 py-4 text-right">ไมล์ล่าสุด / ระยะ</th>
-                                            <th className="px-6 py-4">สถานะ</th>
-                                            <th className="px-6 py-4 text-center">จัดการ</th>
+                                            <th className="whitespace-nowrap px-4 py-3">เลขจอง</th>
+                                            <th className="whitespace-nowrap px-4 py-3">เวลา</th>
+                                            <th className="whitespace-nowrap px-4 py-3">สาขา</th>
+                                            <th className="whitespace-nowrap px-4 py-3">ทะเบียนรถ</th>
+                                            <th className="min-w-[132px] whitespace-nowrap px-4 py-3">ลูกค้า</th>
+                                            <th className="whitespace-nowrap px-4 py-3 text-right">ไมล์ล่าสุด / ระยะ</th>
+                                            <th className="whitespace-nowrap px-4 py-3">สถานะ</th>
+                                            <th className="whitespace-nowrap px-4 py-3">คิวหน้าสาขา</th>
+                                            <th className="whitespace-nowrap px-4 py-3 text-center">จัดการ</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
                                         {bookings.length === 0 ? (
                                             <tr>
-                                                <td colSpan={8} className="px-6 py-8 text-center text-gray-400">
+                                                <td colSpan={9} className="px-6 py-8 text-center text-gray-400">
                                                     {searchQuery ? 'ไม่พบข้อมูลการจองคิวที่ตรงกับการค้นหา' : 'ไม่มีข้อมูลการจองคิวสำหรับวันนี้'}
                                                 </td>
                                             </tr>
                                         ) : (
                                             bookings.map((booking) => (
                                                 <tr key={booking.BookingID} className="hover:bg-gray-50/50">
-                                                    <td className="px-6 py-4 font-semibold text-blue-600">
+                                                    <td className="px-4 py-3 font-semibold text-blue-600">
                                                         <button
                                                             type="button"
                                                             onClick={() => handleViewDetail(booking.BookingID)}
-                                                            className="hover:underline font-bold text-left transition-colors hover:text-blue-800"
+                                                            className="block whitespace-nowrap hover:underline font-bold text-left transition-colors hover:text-blue-800"
                                                         >
                                                             {booking.BookingNo}
                                                         </button>
                                                         {booking.BookingType === 'RETAIL' ? (
-                                                            <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">RETAIL</span>
+                                                            <span className="mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">RETAIL</span>
                                                         ) : booking.BookingType === 'LINEMAN' ? (
-                                                            <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">LINEMAN</span>
+                                                            <span className="mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">LINEMAN</span>
                                                         ) : (
-                                                            <span className="ml-1.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">EV7</span>
+                                                            <span className="mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">EV7</span>
                                                         )}
                                                     </td>
-                                                    <td className="px-6 py-4">
-                                                        <div className="font-medium text-gray-900">
+                                                    <td className="px-4 py-3">
+                                                        <div className="whitespace-nowrap font-medium text-gray-900">
                                                             {formatDate(booking.BookingDate)}
                                                         </div>
-                                                        <div className="text-xs text-gray-500">
+                                                        <div className="whitespace-nowrap text-xs text-gray-500">
                                                             {booking.StartTime} - {booking.EndTime} น.
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4">{booking.Branch.BranchName}</td>
-                                                    <td className="px-6 py-4">
+                                                    <td className="whitespace-nowrap px-4 py-3">{booking.Branch.BranchName}</td>
+                                                    <td className="px-4 py-3">
                                                         <div className="font-medium text-gray-900">{booking.CarRegister}</div>
                                                         <div className="text-xs text-gray-500">{booking.CarModel}</div>
                                                     </td>
-                                                    <td className="px-6 py-4">
+                                                    <td className="min-w-[132px] px-4 py-3">
                                                         <div>{booking.CustomerName}</div>
                                                         {booking.CustomerPhone && <div className="text-xs text-gray-500">📞 {booking.CustomerPhone}</div>}
                                                     </td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <div className="font-semibold text-gray-900">{booking.LastMileage.toLocaleString()} กม.</div>
+                                                    <td className="px-4 py-3 text-right">
+                                                        <div className="whitespace-nowrap font-semibold text-gray-900">{booking.LastMileage.toLocaleString()} กม.</div>
                                                         {booking.ProjectType === 'ซ่อมทั่วไป' || booking.Mileage === 0 ? (
-                                                            <div className="text-xs text-amber-600 font-medium">🔧 ซ่อมทั่วไป</div>
+                                                            <div className="whitespace-nowrap text-xs text-amber-600 font-medium">🔧 ซ่อมทั่วไป</div>
                                                         ) : (
-                                                            <div className="text-xs text-blue-600 font-medium">ตรวจ {booking.Mileage.toLocaleString()} กม.</div>
+                                                            <div className="whitespace-nowrap text-xs text-blue-600 font-medium">ตรวจ {booking.Mileage.toLocaleString()} กม.</div>
                                                         )}
                                                         {booking.FlatRateDescription && booking.ProjectType !== 'ซ่อมทั่วไป' && booking.Mileage !== 0 && (
-                                                            <div className="text-xs text-gray-500">{booking.FlatRateDescription}</div>
+                                                            <div className="max-w-[220px] text-xs text-gray-500">{booking.FlatRateDescription}</div>
                                                         )}
                                                     </td>
-                                                    <td className="px-6 py-4">
+                                                    <td className="whitespace-nowrap px-4 py-3">
                                                         <Badge variant={getStatusVariant(booking.Status) as 'default' | 'success' | 'warning' | 'danger' | 'info'}>
                                                             {getStatusText(booking.Status)}
                                                         </Badge>
@@ -752,7 +755,23 @@ function BookingsPageContent() {
                                                             ) : null;
                                                         })()}
                                                     </td>
-                                                    <td className="px-6 py-4 text-center">
+                                                    <td className="whitespace-nowrap px-4 py-3">
+                                                        {(() => {
+                                                            // สถานะของคิวหน้าสาขาที่ผูกกับใบจองนี้ (คิวล่าสุด); ยังไม่เช็คอิน = "-"
+                                                            const q = booking.Queues?.[0];
+                                                            if (!q) return <span className="text-gray-300">-</span>;
+                                                            const variant = ({ DONE: 'success', CANCELLED: 'danger', NO_SHOW: 'danger', WAITING_CALL: 'warning', WAITING_PAYMENT: 'warning' } as Record<string, string>)[q.Status] ?? 'info';
+                                                            return (
+                                                                <div>
+                                                                    <Badge variant={variant as 'default' | 'success' | 'warning' | 'danger' | 'info'}>
+                                                                        {QUEUE_STATUS_LABEL[q.Status as QueueStatus] ?? q.Status}
+                                                                    </Badge>
+                                                                    <div className="mt-1 text-xs text-gray-500">คิว {q.QueueLabel}</div>
+                                                                </div>
+                                                            );
+                                                        })()}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
                                                         <div className="flex items-center justify-center gap-2">
                                                             {/* Approve button (Status 0 -> 1) - Only for Admin / Service Center */}
                                                             {booking.Status === 0 && !isCS && (

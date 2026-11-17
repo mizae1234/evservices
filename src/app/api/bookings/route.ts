@@ -105,6 +105,12 @@ export async function GET(request: NextRequest) {
                 Logs: {
                     orderBy: { CreateDate: 'desc' },
                 },
+                // สถานะคิวหน้าสาขาที่ผูกกับใบจองนี้ (คิวล่าสุด) ใช้แสดงในคอลัมน์ "สถานะคิว"
+                Queues: {
+                    select: { QueueLabel: true, Status: true },
+                    orderBy: [{ CheckInDate: 'desc' }, { QueueID: 'desc' }],
+                    take: 1,
+                },
             },
             orderBy: [
                 { BookingDate: 'desc' },
