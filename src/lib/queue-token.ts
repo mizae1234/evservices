@@ -35,3 +35,19 @@ export function parseTicket(key: string | null | undefined): number | null {
     const actual = Buffer.from(sig);
     return expected.length === actual.length && timingSafeEqual(expected, actual) ? id : null;
 }
+
+// Booking key: ลูกค้าจองคิวเอง ดู/ยกเลิกคิวของตัวเองโดยไม่ต้องล็อกอิน (BookingID + ลายเซ็น)
+export function signBookingKey(bookingId: number): string {
+    const sig = createHmac('sha256', getSecret()).update(`booking:${bookingId}`).digest('base64url').slice(0, 22);
+    return `${bookingId}.${sig}`;
+}
+
+export function parseBookingKey(key: string | null | undefined): number | null {
+    if (!key) return null;
+    const [idPart, sig] = key.split('.');
+    const id = Number(idPart);
+    if (!Number.isInteger(id) || id <= 0 || !sig) return null;
+    const expected = Buffer.from(signBookingKey(id).split('.')[1]);
+    const actual = Buffer.from(sig);
+    return expected.length === actual.length && timingSafeEqual(expected, actual) ? id : null;
+}
