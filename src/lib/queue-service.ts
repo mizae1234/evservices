@@ -113,6 +113,53 @@ async function resolveQueueMileage(params: {
     return { lastMileage: cur, target: rate.Mileage.Value };
 }
 
+const BOOKING_STATUS_TEXT: Record<number, string> = { 0: 'รออนุมัติ', 1: 'อนุมัติแล้ว', 2: 'ยกเลิก', 3: 'เปิดใบเคลมแล้ว', 4: 'ปิดงาน' };
+
+export interface BookingNearMiss {
+    bookingNo: string;
+    bookingDate: string;
+    branchName: string;
+    status: number;
+    reasons: string[];
+}
+
+/**
+ * ใบจองของทะเบียนนี้ที่ "ไม่ตรงเงื่อนไข" จึงถูกข้ามตอนผูกกับคิว พร้อมเหตุผล (คนละวัน/คนละสาขา/สถานะ/ผูกกับคิวอื่นแล้ว)
+ * ใช้ให้แอดมินรู้ว่าทำไมค้นใบจองไม่เจอ แม้ในระบบจะมีใบจองของทะเบียนนี้อยู่
+ */
+export async function findBookingNearMisses(
+    queue: { BranchID: number; QueueDate: Date },
+    plate: string,
+    statuses: number[],
+): Promise<BookingNearMiss[]> {
+    const key = queuePlate(plate);
+    const digits = key.match(/\d{3,}$/)?.[0] ?? key.match(/\d{3,}/)?.[0];
+    if (!digits) return [];
+    const candidates = await prisma.cM_Booking.findMany({
+        where: { CarRegister: { contains: digits } },
+        include: {
+            Branch: { select: { BranchName: true } },
+            Queues: { where: { Status: { notIn: ['CANCELLED', 'NO_SHOW'] } }, select: { QueueLabel: true } },
+        },
+        orderBy: [{ BookingDate: 'desc' }, { BookingID: 'desc' }],
+        take: 30,
+    });
+    const thDate = (d: Date) => { const [y, m, dd] = d.toISOString().slice(0, 10).split('-'); return `${dd}/${m}/${Number(y) + 543}`; };
+    return candidates
+        .filter((b) => queuePlate(b.CarRegister) === key)
+        .map((b) => {
+            const reasons: string[] = [];
+            if (b.BookingDate.getTime() !== queue.QueueDate.getTime()) reasons.push(`คนละวัน (ใบจองวันที่ ${thDate(b.BookingDate)} ส่วนคิวนี้วันที่ ${thDate(queue.QueueDate)})`);
+            if (b.BranchID !== queue.BranchID) reasons.push(`คนละสาขา (ใบจองของสาขา${b.Branch.BranchName})`);
+            if (!statuses.includes(b.Status)) reasons.push(`สถานะใบจอง "${BOOKING_STATUS_TEXT[b.Status] ?? b.Status}" ไม่อยู่ในที่ค้นหา`);
+            if (!b.IsActive) reasons.push('ใบจองไม่ได้ใช้งานแล้ว');
+            if (b.Queues.length > 0) reasons.push(`ผูกกับคิว ${b.Queues[0].QueueLabel} อยู่แล้ว`);
+            return { bookingNo: b.BookingNo, bookingDate: b.BookingDate.toISOString().slice(0, 10), branchName: b.Branch.BranchName, status: b.Status, reasons };
+        })
+        .filter((m) => m.reasons.length > 0)
+        .slice(0, 3);
+}
+
 /** รายละเอียดงานที่คัดลอกจากใบจองมาใส่คิว: หมายเหตุของใบจอง หรือ "ชื่อบริการ + ระยะเช็ค" */
 export function bookingRepairDetail(booking: { ClaimDetail: string | null; Mileage: number; ServiceType?: { Name: string } | null }): string | null {
     return booking.ClaimDetail?.trim()

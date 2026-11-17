@@ -68,11 +68,14 @@ function carModelsForProject(models: CarModelRow[], project: string): CarModelRo
 }
 
 interface VehicleSuggestion { InventoryItemID: number; RegisterNo: string; Model: string; CustomerName: string; ProjectType: string }
+interface NearMiss { bookingNo: string; bookingDate: string; branchName: string; status: number; reasons: string[] }
+interface PreviewExtra { duplicateLabel: string | null; unlinkBookingNo?: string | null; searchedDate?: string; samePlate?: boolean; nearMisses?: NearMiss[] }
+const thDate = (iso: string) => { const [y, m, d] = iso.split('-'); return `${d}/${m}/${Number(y) + 543}`; };
 type PlatePreview =
     | { kind: 'none' }
-    | { kind: 'notfound' | 'error'; duplicateLabel: string | null; unlinkBookingNo?: string | null }
-    | { kind: 'booking'; duplicateLabel: string | null; unlinkBookingNo?: string | null; booking: { bookingNo: string; startTime: string; endTime: string; serviceTypeName: string | null; carModel: string; customerName: string; customerPhone: string | null; projectType: string | null; mileage: number | null } }
-    | { kind: 'vehicle'; duplicateLabel: string | null; unlinkBookingNo?: string | null; vehicle: { carModel: string | null; customerName: string | null; projectType: string | null } };
+    | ({ kind: 'notfound' | 'error' } & PreviewExtra)
+    | { kind: 'booking'; duplicateLabel: string | null; unlinkBookingNo?: string | null; samePlate?: boolean; booking: { bookingNo: string; startTime: string; endTime: string; serviceTypeName: string | null; carModel: string; customerName: string; customerPhone: string | null; projectType: string | null; mileage: number | null } }
+    | { kind: 'vehicle'; duplicateLabel: string | null; unlinkBookingNo?: string | null; nearMisses?: NearMiss[]; searchedDate?: string; vehicle: { carModel: string | null; customerName: string | null; projectType: string | null } };
 interface BranchOption { BranchID: number; BranchName: string }
 
 const BOARD_COLUMNS: QueueStatus[] = BOARD_STATUSES.filter((s) => s !== 'DONE');
@@ -386,14 +389,16 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
     // พิมพ์ทะเบียนในฟอร์มแก้ไข: ค้นรายการรถ (EV7) แบบ autocomplete + ดูใบจอง/ข้อมูลรถของทะเบียนนั้นทันที ไม่ต้องกดบันทึก
     const editQueueId = viewing?.QueueID;
     const editOriginalPlate = viewing?.CarRegister ?? '';
+    const editHasBooking = !!viewing?.Booking;
     useEffect(() => {
         if (!editing || !editQueueId) { setPlatePreview(null); setPlateSuggestions([]); setShowPlateSuggest(false); return; }
         const q = editForm.carRegister.trim();
-        if (q.length < 2 || q === editOriginalPlate) { setPlatePreview(null); setPlateSuggestions([]); setShowPlateSuggest(false); return; }
+        // ทะเบียนเดิม: ถ้าคิวผูกใบจองอยู่แล้วไม่ต้องค้น; ถ้ายังไม่ผูก ค้นใบจองให้ดูทันที (ตอนบันทึกระบบจะลองผูกให้)
+        if (q.length < 2 || (q === editOriginalPlate && editHasBooking)) { setPlatePreview(null); setPlateSuggestions([]); setShowPlateSuggest(false); return; }
         let cancelled = false;
         const timer = setTimeout(async () => {
             setPlateSearching(true);
-            const skipSuggest = suppressSuggestFor.current === q;
+            const skipSuggest = suppressSuggestFor.current === q || q === editOriginalPlate;
             try {
                 const [prev, sug] = await Promise.all([
                     fetch(`/api/queue/${editQueueId}/plate-preview?plate=${encodeURIComponent(q)}`, { cache: 'no-store' }).then((r) => r.json()).catch(() => null),
@@ -411,7 +416,7 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
             }
         }, 350);
         return () => { cancelled = true; clearTimeout(timer); };
-    }, [editing, editQueueId, editOriginalPlate, editForm.carRegister]);
+    }, [editing, editQueueId, editOriginalPlate, editHasBooking, editForm.carRegister]);
 
     const editShowsMileage = !editForm.otherService && !!serviceTypes.find((t) => String(t.ServiceTypeID) === editForm.serviceTypeId)?.RequiresMileage;
 
@@ -861,8 +866,23 @@ h1 { margin: 8mm 0 2mm; font-size: 40pt; line-height: 1.15; }
                                                 <p className="mt-1.5 text-xs opacity-80">ระบบจะเติมเฉพาะรุ่นรถ/VIN/โครงการที่ยังว่าง เมื่อกดบันทึก ไม่เปลี่ยนชื่อ-เบอร์ที่ลูกค้ากรอก</p>
                                             </>
                                         )}
-                                        {platePreview.kind === 'notfound' && <p className="text-xs">ไม่พบใบจองของวันนี้หรือข้อมูลรถในระบบสำหรับทะเบียนนี้</p>}
+                                        {platePreview.kind === 'notfound' && (
+                                            <p className="text-xs">
+                                                {platePreview.samePlate ? 'คิวนี้ยังไม่ผูกใบจอง — ไม่พบใบจอง' : 'ไม่พบใบจองหรือข้อมูลรถในระบบสำหรับทะเบียนนี้ — ไม่พบใบจอง'}
+                                                {platePreview.searchedDate ? `ของวันที่ ${thDate(platePreview.searchedDate)} ในสาขานี้ (สถานะอนุมัติ/เปิดเคลม/ปิดงาน)` : ''}
+                                            </p>
+                                        )}
                                         {platePreview.kind === 'error' && <p className="text-xs">ค้นข้อมูลจาก EV7 ไม่สำเร็จในขณะนี้ (ยังบันทึกทะเบียนได้)</p>}
+                                        {platePreview.kind !== 'booking' && platePreview.nearMisses && platePreview.nearMisses.length > 0 && (
+                                            <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                                                <p className="mb-1 font-medium">พบใบจองของทะเบียนนี้ แต่ไม่ตรงเงื่อนไขการผูกกับคิว:</p>
+                                                <ul className="list-disc space-y-0.5 pl-4">
+                                                    {platePreview.nearMisses.map((m) => (
+                                                        <li key={m.bookingNo}>{m.bookingNo} · วันที่ {thDate(m.bookingDate)} · สาขา{m.branchName} — {m.reasons.join(' / ')}</li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                                 <Input

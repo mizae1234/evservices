@@ -128,8 +128,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     // แก้ทะเบียนเป็นค่าใหม่: ปลดใบจองเดิมถ้าทะเบียนไม่ตรงกับใบจองนั้น แล้วค้นใบจอง/ข้อมูลรถ EV7 ของทะเบียนใหม่
     // เพื่อผูก/เติมข้อมูลที่ยังว่าง (ไม่ทับข้อมูลที่มีอยู่ ไม่แตะชื่อและเบอร์ที่ลูกค้ากรอก)
     const notices: string[] = [];
-    if (typeof data.CarRegister === 'string' && data.CarRegister) {
-        const plate = data.CarRegister;
+    const plateChanged = typeof data.CarRegister === 'string' && !!data.CarRegister;
+    // ทะเบียนเดิม (ไม่เปลี่ยน เช่น พิมพ์ทอ-4693 แทนทอ4693) แต่คิวยังไม่ผูกใบจอง: ลองผูกใบจองที่ค้นเจอให้ตอนบันทึก
+    // (ฟอร์มส่งทะเบียนมาทุกครั้ง; ขั้นนี้ค้นเฉพาะใบจอง ไม่ค้น EV7 และไม่เติมข้อมูลอื่นนอกจากที่ผูกใบจอง)
+    const relinkSamePlate = !plateChanged && queue.BookingID == null && !!queue.CarRegister && 'carRegister' in body;
+    if (plateChanged || relinkSamePlate) {
+        const plate = plateChanged ? (data.CarRegister as string) : queue.CarRegister;
         const eff = <K extends 'CarModel' | 'VinNo' | 'InventoryItemID' | 'RepairDetail' | 'Mileage' | 'LastMileage' | 'ProjectType'>(k: K) =>
             (k in data ? (data as Record<string, unknown>)[k] : queue[k]) as (typeof queue)[K];
         // แอดมินเปลี่ยนโครงการในครั้งนี้จริงหรือไม่ (ฟอร์มส่งค่าเดิมมาทุกครั้ง จึงดูจากค่าที่เปลี่ยน ไม่ใช่แค่มี key) — ต้องจับก่อนล้างข้อมูลด้านล่าง
@@ -187,7 +191,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         }
 
         // 3) ไม่มีใบจอง: ค้นข้อมูลรถจาก EV7 แล้วเติมช่องที่ยังว่าง (ถ้าคิวยังผูกใบจองอื่นอยู่ ข้ามขั้นนี้)
-        if (!linked && canLink) {
+        if (!linked && canLink && plateChanged) {
             const { vehicle, failed } = await lookupVehicleDetailed(plate);
             if (vehicle) {
                 if (!eff('CarModel') && vehicle.carModel) { data.CarModel = vehicle.carModel; filled.push('รุ่นรถ'); }
