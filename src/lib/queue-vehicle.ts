@@ -8,10 +8,19 @@ export interface VehicleInfo {
     customerName: string | null;
 }
 
-// ค้นรถ Leasing จาก EV7 API; ล้มเหลว/ไม่พบ = null (ไม่ throw)
-export async function lookupVehicle(plate: string): Promise<VehicleInfo | null> {
+export interface VehicleLookupResult {
+    vehicle: VehicleInfo | null;
+    /** true = เรียก EV7 ไม่สำเร็จ (ไม่ได้ตั้งค่า/ล่ม/ช้าเกิน/ตอบผิดรูปแบบ) ต่างจาก "ค้นแล้วไม่พบ" */
+    failed: boolean;
+}
+
+// ค้นรถ Leasing จาก EV7 API; แยกผล "ไม่พบ" ออกจาก "เรียกไม่สำเร็จ" (ไม่ throw)
+export async function lookupVehicleDetailed(plate: string): Promise<VehicleLookupResult> {
     const url = process.env.EV7_API_URL;
-    if (!url) return null;
+    if (!url) {
+        console.error('EV7 lookup skipped: EV7_API_URL is not configured');
+        return { vehicle: null, failed: true };
+    }
     try {
         const res = await fetch(url, {
             method: 'POST',
@@ -19,21 +28,33 @@ export async function lookupVehicle(plate: string): Promise<VehicleInfo | null> 
             body: JSON.stringify({ RegisterNo: plate }),
             signal: AbortSignal.timeout(5000),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+            console.error('EV7 lookup failed:', res.status);
+            return { vehicle: null, failed: true };
+        }
         const json = await res.json();
         if (json.Status === 1 && json.Data) {
             return {
-                vinNo: json.Data.VinNo ?? null,
-                carModel: json.Data.Model ?? null,
-                inventoryItemId: json.Data.InventoryItemID ?? null,
-                projectType: json.Data.ProjectType ?? null,
-                customerName: json.Data.CustomerName ?? null,
+                vehicle: {
+                    vinNo: json.Data.VinNo ?? null,
+                    carModel: json.Data.Model ?? null,
+                    inventoryItemId: json.Data.InventoryItemID ?? null,
+                    projectType: json.Data.ProjectType ?? null,
+                    customerName: json.Data.CustomerName ?? null,
+                },
+                failed: false,
             };
         }
-    } catch {
-        // เรียก API ไม่ได้ -> ถือว่าไม่พบ
+        return { vehicle: null, failed: false };
+    } catch (error) {
+        console.error('EV7 lookup error:', error instanceof Error ? error.message : error);
+        return { vehicle: null, failed: true };
     }
-    return null;
+}
+
+// ค้นรถ Leasing จาก EV7 API; ล้มเหลว/ไม่พบ = null (ไม่ throw)
+export async function lookupVehicle(plate: string): Promise<VehicleInfo | null> {
+    return (await lookupVehicleDetailed(plate)).vehicle;
 }
 
 /** แสดงชื่อจริงเต็ม ส่วนนามสกุลแทนด้วย *** (เช่น "วิภา รักษ์โลก" -> "วิภา ***") */

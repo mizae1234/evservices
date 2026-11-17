@@ -425,8 +425,11 @@ model CM_Queue {
   VinNo           String?            @db.NVarChar(50)
   InventoryItemID Int?
   BookingType     String             @default("EV7") @db.NVarChar(20)
+  ProjectType     String?            @db.NVarChar(100) // โครงการ (พิมพ์อิสระ) — ค่าจากใบจอง/EV7 API/ที่ลูกค้าเลือกตอนรับรถใหม่ เหมือน CM_Booking.ProjectType
   ServiceTypeID   Int?
   ServiceOther    String?            @db.NVarChar(200) // บริการ "อื่นๆ" ที่ลูกค้าพิมพ์เอง (ServiceTypeID = null)
+  LastMileage     Int? // เลขไมล์ล่าสุด (กม.) — บริการเช็คระยะ: ลูกค้า walk-in กรอก / ดึงจากใบจอง
+  Mileage         Int? // ระยะเช็คที่เลือก (กม.) เช่น 10000
   Status          String             @default("WAITING_CALL") @db.NVarChar(20)
   RepairDetail    String?            @db.NVarChar(Max)
   CheckInDate     DateTime           @default(now())

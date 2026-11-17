@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolvePublicBranch } from '@/lib/queue-public';
-import { getTodayQueueDate } from '@/lib/queue-service';
+import { NEW_CAR_SERVICE_TEXT, getTodayQueueDate } from '@/lib/queue-service';
 import { ACTIVE_STATUSES } from '@/lib/queue-status';
 import { listQueueChannels } from '@/lib/queue-channel';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         data: {
             branchName: branch.BranchName,
             // บริการ "อื่นๆ" แสดงเพียงคำว่าอื่นๆ (ไม่เปิดเผยข้อความที่ลูกค้าพิมพ์บนจอสาธารณะ)
-            queues: queues.map((q) => ({ label: q.QueueLabel, status: q.Status, plate: q.CarRegister, service: q.ServiceType?.Name ?? 'อื่นๆ' })),
+            queues: queues.map((q) => ({ label: q.QueueLabel, status: q.Status, plate: q.CarRegister, service: q.ServiceType?.Name ?? (q.ServiceOther === NEW_CAR_SERVICE_TEXT ? NEW_CAR_SERVICE_TEXT : 'อื่นๆ') })),
             channels: await listQueueChannels(branch.BranchID),
         },
     });

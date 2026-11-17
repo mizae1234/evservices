@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolvePublicBranch } from '@/lib/queue-public';
+import { getMileageOptions } from '@/lib/queue-mileage';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const serviceTypes = await prisma.cM_ServiceType.findMany({
         where: { IsActive: true },
         orderBy: { SortOrder: 'asc' },
-        select: { ServiceTypeID: true, Name: true },
+        select: { ServiceTypeID: true, Name: true, RequiresMileage: true },
     });
-    return NextResponse.json({ success: true, data: { branchName: branch.BranchName, serviceTypes } });
+    // ระยะเช็คทุกระยะ (ใช้เมื่อไม่รู้รุ่นรถ) — ถ้ารู้รุ่นรถ หน้า lookup จะส่งตัวเลือกเฉพาะรุ่นนั้นมาแทน
+    const mileageOptions = await getMileageOptions({ serviceTypeIds: serviceTypes.filter((s) => s.RequiresMileage).map((s) => s.ServiceTypeID) });
+    return NextResponse.json({ success: true, data: { branchName: branch.BranchName, serviceTypes, mileageOptions } });
 }

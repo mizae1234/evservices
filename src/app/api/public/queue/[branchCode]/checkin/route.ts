@@ -3,7 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolvePublicBranch } from '@/lib/queue-public';
-import { QueueInputError, checkInQueue, normalizePlate } from '@/lib/queue-service';
+import {
+    NEW_CAR_SERVICE_TEXT, QueueInputError, checkInQueue, getTodayQueueDate, queuePlate,
+} from '@/lib/queue-service';
+import { ACTIVE_STATUSES } from '@/lib/queue-status';
 import { signTicket } from '@/lib/queue-token';
 import { lookupVehicle } from '@/lib/queue-vehicle';
 import { QUEUE_STATUS_LABEL, QueueStatus } from '@/lib/queue-status';
@@ -27,7 +30,54 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             return NextResponse.json({ success: false, error: 'QR Code ไม่ถูกต้องหรือหมดอายุ' }, { status: 404 });
         }
 
-        const plate = normalizePlate(String(body.carRegister ?? ''));
+        // ลูกค้ามารับรถใหม่: ยังไม่มีทะเบียน กรอกชื่อ เบอร์ และโครงการ แล้วเช็คอินได้เลย
+        if (body.newCar === true) {
+            const name = String(body.customerName ?? '').trim();
+            const phoneNew = String(body.customerPhone ?? '').replace(/\D/g, '');
+            const project = String(body.project ?? '').trim();
+            if (!name) return NextResponse.json({ success: false, error: 'กรุณากรอกชื่อ-นามสกุล' }, { status: 400 });
+            if (name.length > 100) return NextResponse.json({ success: false, error: 'ชื่อยาวเกินไป' }, { status: 400 });
+            if (phoneNew.length !== 10) return NextResponse.json({ success: false, error: 'กรุณากรอกเบอร์โทร 10 หลัก' }, { status: 400 });
+            if (!project || project.length > 100) {
+                return NextResponse.json({ success: false, error: 'กรุณาเลือกโครงการ' }, { status: 400 });
+            }
+            // กันกดซ้ำ/เช็คอินซ้ำ: เบอร์เดียวกันที่มีคิวรับรถใหม่ค้างอยู่วันนี้ -> คืนคิวเดิม
+            const dup = await prisma.cM_Queue.findFirst({
+                where: {
+                    BranchID: branch.BranchID,
+                    QueueDate: getTodayQueueDate(),
+                    CustomerPhone: phoneNew,
+                    CarRegister: '',
+                    ServiceOther: NEW_CAR_SERVICE_TEXT,
+                    Status: { in: ACTIVE_STATUSES },
+                },
+            });
+            const { queue, created } = dup
+                ? { queue: dup, created: false }
+                : await checkInQueue({
+                    newCar: true,
+                    claimsBooking: false,
+                    branchId: branch.BranchID,
+                    carRegister: '',
+                    customerName: name,
+                    customerPhone: phoneNew,
+                    serviceTypeId: null,
+                    serviceOther: NEW_CAR_SERVICE_TEXT,
+                    projectType: project,
+                });
+            return NextResponse.json({
+                success: true,
+                data: {
+                    ticketKey: signTicket(queue.QueueID),
+                    queueLabel: queue.QueueLabel,
+                    status: queue.Status,
+                    statusLabel: QUEUE_STATUS_LABEL[queue.Status as QueueStatus] ?? queue.Status,
+                    created,
+                },
+            });
+        }
+
+        const plate = queuePlate(String(body.carRegister ?? ''));
         const customerName = String(body.customerName ?? '').trim();
         const phone = String(body.customerPhone ?? '').replace(/\D/g, '');
         if (plate.length < 2 || plate.length > 20) {
@@ -62,9 +112,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             customerName: customerName || null,
             customerPhone: phone || null,
             serviceTypeId,
+            currentMileage: body.currentMileage != null ? Number(body.currentMileage) : null,
+            mileageId: body.mileageId != null ? Number(body.mileageId) : null,
             serviceOther: body.otherService === true ? serviceOther || null : null,
             claimsBooking: Boolean(body.claimsBooking),
-            bookingType: vehicle ? undefined : 'RETAIL',
+            // ไม่พบข้อมูลรถ (หรือเรียก EV7 ไม่สำเร็จ): เว้นโครงการว่างไว้ ให้แอดมินแก้ภายหลัง (ไม่เดาเป็น Retail)
+            // โครงการ = ค่า Project Type จาก EV7 API ตามที่ส่งมา; ไม่พบข้อมูลรถ/เรียก EV7 ไม่ได้ = ว่าง ให้แอดมินกำหนดภายหลัง
+            projectType: vehicle?.projectType ?? null,
             vehicle,
         });
 
@@ -81,7 +135,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         });
     } catch (error) {
         if (error instanceof QueueInputError) {
-            return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+            return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: 400 });
         }
         console.error('Queue check-in error:', error);
         return NextResponse.json({ success: false, error: 'ไม่สามารถเช็คอินได้ กรุณาลองใหม่อีกครั้ง' }, { status: 500 });

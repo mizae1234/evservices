@@ -10,17 +10,19 @@ import {
     AlertCircle, CalendarClock, Car, CheckCircle2, ChevronLeft, Clock, Loader2, RefreshCw, Search, Sparkles, Ticket, User,
 } from 'lucide-react';
 import { QUEUE_STATUS_LABEL, QueueStatus } from '@/lib/queue-status';
+import { getPlateWarnings } from '@/lib/plate-warning';
 
-interface ServiceTypeOption { ServiceTypeID: number; Name: string }
-interface Info { branchName: string; serviceTypes: ServiceTypeOption[] }
+interface ServiceTypeOption { ServiceTypeID: number; Name: string; RequiresMileage?: boolean }
+interface MileageOption { mileageId: number; value: number; label: string }
+interface Info { branchName: string; serviceTypes: ServiceTypeOption[]; mileageOptions?: Record<number, MileageOption[]> }
 interface TicketView {
     queueLabel: string; status: QueueStatus; statusLabel: string; serviceTypeName: string | null;
     checkInAt: string; aheadCount: number; expired: boolean; needsReview: boolean; branchName?: string;
 }
 type Lookup =
     | { kind: 'ticket'; ticketKey: string; ticket: TicketView }
-    | { kind: 'booking'; booking: { bookingNo: string; bookingDate: string; carRegister: string; startTime: string; endTime: string; serviceTypeId: number | null; serviceTypeName: string | null; carModel: string; customerName: string; customerPhone: string } }
-    | { kind: 'vehicle'; vehicle: { carRegister: string; carModel: string | null; customerName: string } }
+    | { kind: 'booking'; booking: { bookingNo: string; bookingDate: string; carRegister: string; startTime: string; endTime: string; serviceTypeId: number | null; serviceTypeName: string | null; carModel: string; customerName: string; customerPhone: string; projectType?: string | null } }
+    | { kind: 'vehicle'; vehicle: { carRegister: string; carModel: string | null; customerName: string; projectType?: string | null; mileageOptions?: Record<number, MileageOption[]> | null } }
     | { kind: 'new' };
 
 const STEPS: QueueStatus[] = ['WAITING_CALL', 'WAITING_REPAIR', 'IN_REPAIR', 'WAITING_PAYMENT'];
@@ -119,10 +121,18 @@ function CheckInContent() {
     const [customerName, setCustomerName] = useState('');
     const [customerPhone, setCustomerPhone] = useState('');
     const [serviceTypeId, setServiceTypeId] = useState('');
+    // บริการเช็คระยะ (walk-in): เลขไมล์ล่าสุด + ระยะเช็คที่ต้องการ
+    const [currentMileage, setCurrentMileage] = useState('');
+    const [mileageId, setMileageId] = useState<number | null>(null);
     // เลือก "อื่นๆ" (ServiceTypeID ว่าง + พิมพ์รายละเอียดเอง)
     const [otherService, setOtherService] = useState(false);
     const [serviceOther, setServiceOther] = useState('');
     const [claimsBooking, setClaimsBooking] = useState(false);
+    // เช็คอินแล้ว server ดึงชื่อจาก EV7 ไม่ได้ -> ให้ลูกค้ากรอกชื่อเอง
+    const [forceName, setForceName] = useState(false);
+    // ลูกค้ามารับรถใหม่ (ยังไม่มีทะเบียน)
+    const [newCarMode, setNewCarMode] = useState(false);
+    const [project, setProject] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -230,6 +240,8 @@ function CheckInContent() {
                 return;
             }
             if (result.kind === 'booking' && result.booking.serviceTypeId) setServiceTypeId(String(result.booking.serviceTypeId));
+            setMileageId(null);
+            setForceName(false);
             setLookup(result);
         } catch {
             setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่');
@@ -252,6 +264,8 @@ function CheckInContent() {
                     customerName: needsName ? customerName.trim() : undefined,
                     customerPhone: needsPhone ? customerPhone : undefined,
                     serviceTypeId: !otherService && serviceTypeId ? Number(serviceTypeId) : null,
+                    currentMileage: needsMileageInput ? mileageNum : undefined,
+                    mileageId: needsMileageInput ? mileageId : undefined,
                     otherService: needsService && otherService,
                     serviceOther: needsService && otherService ? serviceOther.trim() : undefined,
                     claimsBooking: lookup.kind === 'new' ? claimsBooking : false,
@@ -261,6 +275,9 @@ function CheckInContent() {
             if (data.success) {
                 saveTicket(data.data.ticketKey);
                 await fetchTicket(data.data.ticketKey, true);
+            } else if (data.code === 'NAME_REQUIRED') {
+                // ไม่มีข้อมูลชื่อจากระบบ: แสดงช่องให้ลูกค้ากรอกชื่อเอง (ไม่แสดงข้อความแจ้งเตือน)
+                setForceName(true);
             } else {
                 setError(data.error || 'เช็คอินไม่สำเร็จ');
             }
@@ -274,16 +291,53 @@ function CheckInContent() {
     // ไม่มีชื่อในระบบ (เช่น รถทดแทน ไม่ผูกกับเจ้าของ) ให้ลูกค้ากรอกเอง
     const needsName = !!lookup && (
         lookup.kind === 'new'
+        || (forceName && lookup.kind !== 'ticket')
         || (lookup.kind === 'vehicle' && !lookup.vehicle.customerName?.trim())
         || (lookup.kind === 'booking' && !lookup.booking.customerName?.trim())
     );
+    const submitNewCar = async () => {
+        if (submitting) return;
+        setSubmitting(true);
+        setError(null);
+        try {
+            const res = await fetch(`${api}/checkin`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, newCar: true, customerName: customerName.trim(), customerPhone, project }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                saveTicket(data.data.ticketKey);
+                setNewCarMode(false);
+                await fetchTicket(data.data.ticketKey, true);
+            } else {
+                setError(data.error || 'เช็คอินไม่สำเร็จ');
+            }
+        } catch {
+            setError('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+    const canSubmitNewCar = customerName.trim().length > 0 && customerPhone.length === 10 && !!project;
+
+    const selectedService = info?.serviceTypes.find((t) => String(t.ServiceTypeID) === serviceTypeId);
+    // รู้รุ่นรถ (จากใบจอง/EV7): แสดงเฉพาะระยะเช็คของรุ่นนั้น ไม่รู้รุ่น: แสดงทุกระยะ
+    const modelOptions = lookup?.kind === 'vehicle' ? lookup.vehicle.mileageOptions : null;
+    const mileageOpts = (selectedService && (modelOptions?.[selectedService.ServiceTypeID] ?? info?.mileageOptions?.[selectedService.ServiceTypeID])) || [];
+    const mileageNum = Math.trunc(Number(currentMileage));
+    const selectedMileage = mileageOpts.find((m) => m.mileageId === mileageId);
+    // เช็คระยะ: ลูกค้า walk-in/ไม่มีใบจอง กรอกเอง (ลูกค้าที่จองมาแล้วไม่ต้องกรอก ใช้ข้อมูลจากใบจอง ถ้ามี)
+    const needsMileageInput = !!lookup && (lookup.kind === 'new' || lookup.kind === 'vehicle') && !otherService && !!selectedService?.RequiresMileage;
+    const plateWarnings = getPlateWarnings(plate);
     const needsService = !!lookup && (lookup.kind !== 'booking' || !lookup.booking.serviceTypeId);
     // ลูกค้าที่มีการจอง (และมีเบอร์ในการจอง) ไม่ต้องกรอกเบอร์ซ้ำ
     const needsPhone = !!lookup && !(lookup.kind === 'booking' && lookup.booking.customerPhone);
     const canSubmit = !!lookup
         && (!needsPhone || customerPhone.length === 10)
         && (!needsName || customerName.trim().length > 0)
-        && (!needsService || (otherService ? serviceOther.trim().length > 0 : !!serviceTypeId));
+        && (!needsService || (otherService ? serviceOther.trim().length > 0 : !!serviceTypeId))
+        && (!needsMileageInput || (mileageNum > 0 && !!mileageId));
 
     return (
         <div className="min-h-screen bg-gradient-to-b from-emerald-50 via-white to-white">
@@ -305,7 +359,48 @@ function CheckInContent() {
                         <TicketCard ticket={ticket} refreshing={refreshing} onRefresh={() => ticketKey && fetchTicket(ticketKey)} onReset={clearTicket} />
                     )}
 
-                    {!booting && info && !ticket && (
+                    {!booting && info && !ticket && newCarMode && (
+                        <div className="space-y-4">
+                            <p className="flex items-center gap-2 font-semibold text-emerald-800"><Sparkles className="h-5 w-5" />ลูกค้ารับรถใหม่</p>
+                            <div className="space-y-1.5">
+                                <label htmlFor="nc-name" className="block text-sm font-medium text-emerald-900">ชื่อ-นามสกุล <span className="text-red-500">*</span></label>
+                                <input id="nc-name" className={inputCls} placeholder="ชื่อ-นามสกุล" maxLength={100} value={customerName} onChange={(e) => setCustomerName(e.target.value)} autoComplete="name" />
+                            </div>
+                            <div className="space-y-1.5">
+                                <label htmlFor="nc-phone" className="block text-sm font-medium text-emerald-900">เบอร์โทรติดต่อ <span className="text-red-500">*</span></label>
+                                <input id="nc-phone" className={inputCls} placeholder="เบอร์โทร 10 หลัก" inputMode="numeric" maxLength={10} value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, ''))} autoComplete="tel" />
+                            </div>
+                            <div className="space-y-2">
+                                <p className="text-sm font-medium text-emerald-900">โครงการ <span className="text-red-500">*</span></p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[{ v: 'EV7', t: 'EV7' }, { v: 'Grab', t: 'Grab' }, { v: 'Line Man', t: 'Line Man' }].map((o) => (
+                                        <button
+                                            key={o.v}
+                                            type="button"
+                                            onClick={() => setProject(o.v)}
+                                            className={`rounded-xl border px-3 py-3 text-sm transition ${project === o.v ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-800 ring-2 ring-emerald-200' : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300'}`}
+                                        >
+                                            {o.t}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            {error && (
+                                <div className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>
+                            )}
+                            <div className="space-y-2 pt-1">
+                                <button type="button" className={primaryBtn} disabled={!canSubmitNewCar || submitting} onClick={submitNewCar}>
+                                    {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <Car className="h-5 w-5" />}
+                                    เช็คอินรับคิว
+                                </button>
+                                <button type="button" onClick={() => { setNewCarMode(false); setError(null); }} className="inline-flex w-full items-center justify-center gap-1 text-sm text-gray-500 hover:text-emerald-700">
+                                    <ChevronLeft className="h-4 w-4" />กลับไปค้นหาทะเบียน
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!booting && info && !ticket && !newCarMode && (
                         <div className="space-y-5">
                             {/* ขั้นที่ 1: ทะเบียนรถ */}
                             <form onSubmit={doLookup} className="space-y-3">
@@ -319,6 +414,12 @@ function CheckInContent() {
                                     autoComplete="off"
                                     autoCapitalize="characters"
                                 />
+                                {plateWarnings.length > 0 && (
+                                    <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+                                        <p className="mb-1 flex items-center gap-1 font-semibold"><AlertCircle className="h-4 w-4" />กรุณาตรวจสอบทะเบียนที่พิมพ์</p>
+                                        <ul className="list-disc space-y-0.5 pl-5">{plateWarnings.map((w) => <li key={w}>{w}</li>)}</ul>
+                                    </div>
+                                )}
                                 {!lookup && (
                                     <button type="submit" className={primaryBtn} disabled={searching || plate.trim().length < 2}>
                                         {searching ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />}
@@ -326,6 +427,16 @@ function CheckInContent() {
                                     </button>
                                 )}
                             </form>
+
+                            {!lookup && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setNewCarMode(true); setError(null); setCustomerName(''); setCustomerPhone(''); setProject(''); }}
+                                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-3 text-sm font-medium text-emerald-800 transition hover:bg-emerald-50"
+                                >
+                                    <Sparkles className="h-4 w-4" />ลูกค้ารับรถใหม่ (ยังไม่มีทะเบียน)
+                                </button>
+                            )}
 
                             {error && (
                                 <div className="flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>
@@ -340,6 +451,7 @@ function CheckInContent() {
                                         <Row label="ชื่อ-นามสกุล" value={lookup.booking.customerName} />
                                         <Row label="วันที่นัดหมาย" value={formatThaiDate(lookup.booking.bookingDate)} />
                                         <Row label="เวลานัดหมาย" value={`${lookup.booking.startTime} - ${lookup.booking.endTime} น.`} />
+                                        {lookup.booking.projectType && <Row label="โครงการ" value={lookup.booking.projectType} />}
                                         <Row label="บริการ" value={lookup.booking.serviceTypeName ?? '-'} />
                                         <Row label="ทะเบียนรถ" value={lookup.booking.carRegister} />
                                         <Row label="รุ่นรถ" value={lookup.booking.carModel || '-'} />
@@ -352,6 +464,7 @@ function CheckInContent() {
                                     <dl className="space-y-1.5 text-sm">
                                         {lookup.vehicle.customerName?.trim() && <Row label="ชื่อ-นามสกุล" value={lookup.vehicle.customerName} />}
                                         <Row label="ทะเบียนรถ" value={lookup.vehicle.carRegister} />
+                                        {lookup.vehicle.projectType && <Row label="โครงการ" value={lookup.vehicle.projectType} />}
                                         <Row label="รุ่นรถ" value={lookup.vehicle.carModel ?? '-'} />
                                     </dl>
                                     <p className="text-xs text-gray-500">{needsName ? 'ไม่พบชื่อผู้ใช้รถคันนี้ในระบบ กรุณากรอกชื่อของคุณด้านล่าง' : 'ระบบจะใช้ข้อมูลนี้ให้อัตโนมัติ ไม่ต้องกรอกซ้ำ'}</p>
@@ -390,7 +503,7 @@ function CheckInContent() {
                                             <button
                                                 key={s.ServiceTypeID}
                                                 type="button"
-                                                onClick={() => { setServiceTypeId(String(s.ServiceTypeID)); setOtherService(false); }}
+                                                onClick={() => { setServiceTypeId(String(s.ServiceTypeID)); setOtherService(false); setMileageId(null); }}
                                                 className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${!otherService && serviceTypeId === String(s.ServiceTypeID) ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-800 ring-2 ring-emerald-200' : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300'}`}
                                             >
                                                 {s.Name}
@@ -399,19 +512,62 @@ function CheckInContent() {
                                         ))}
                                         <button
                                             type="button"
-                                            onClick={() => { setOtherService(true); setServiceTypeId(''); }}
+                                            onClick={() => { setOtherService(true); setServiceTypeId(''); setMileageId(null); }}
                                             className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left text-sm transition ${otherService ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-800 ring-2 ring-emerald-200' : 'border-gray-200 bg-white text-gray-700 hover:border-emerald-300'}`}
                                         >
                                             อื่นๆ
                                             {otherService && <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
                                         </button>
+                                        {otherService && <p className="px-1 text-xs text-red-500">ตัวอย่างเช่น ติดต่อประกัน, คืนรถ, สอบถามข้อมูล เป็นต้น</p>}
                                     </div>
                                     {otherService && (
                                         <div className="space-y-1.5 pt-1">
                                             <label htmlFor="service-other" className="block text-sm font-medium text-emerald-900">ระบุบริการที่ต้องการ <span className="text-red-500">*</span></label>
-                                            <input id="service-other" className={inputCls} maxLength={200} placeholder="เช่น คืนรถ, สอบถามข้อมูล" value={serviceOther} onChange={(e) => setServiceOther(e.target.value)} />
+                                            <input id="service-other" className={inputCls} maxLength={200} placeholder="กรุณาระบุบริการที่ต้องการ" value={serviceOther} onChange={(e) => setServiceOther(e.target.value)} />
                                         </div>
                                     )}
+                                </div>
+                            )}
+
+                            {needsMileageInput && (
+                                <div className="space-y-4">
+                                    <div className="space-y-1.5">
+                                        <label htmlFor="mileage" className="block text-sm font-medium text-emerald-900">เลขไมล์ล่าสุด (กิโลเมตร) <span className="text-red-500">*</span></label>
+                                        <input id="mileage" className={inputCls} inputMode="numeric" placeholder="ระบุเลขไมล์ล่าสุดของรถยนต์" value={currentMileage} onChange={(e) => {
+                                            const v = e.target.value.replace(/\D/g, '').slice(0, 6);
+                                            setCurrentMileage(v);
+                                            // ระยะที่เลือกไว้ถ้าน้อยกว่าหรือเท่ากับไมล์ใหม่ ต้องเลือกใหม่ (เหมือนหน้าจอง)
+                                            const n = Math.trunc(Number(v));
+                                            if (selectedMileage && n > 0 && selectedMileage.value <= n) setMileageId(null);
+                                        }} />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <p className="text-sm font-medium text-emerald-900">ระยะเช็คที่ต้องการ <span className="text-red-500">*</span></p>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {mileageOpts.map((m) => {
+                                                // ระยะที่น้อยกว่าหรือเท่ากับเลขไมล์ปัจจุบัน เลือกไม่ได้ (เหมือนหน้าจองของแอดมิน)
+                                                const disabled = mileageNum > 0 && m.value <= mileageNum;
+                                                return (
+                                                    <button
+                                                        key={m.mileageId}
+                                                        type="button"
+                                                        disabled={disabled}
+                                                        onClick={() => setMileageId(m.mileageId)}
+                                                        className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition ${disabled ? 'cursor-not-allowed border-gray-100 bg-gray-100 text-gray-400 opacity-60' : mileageId === m.mileageId ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-emerald-200 bg-white text-gray-800 hover:border-emerald-400'}`}
+                                                    >
+                                                        {m.label}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        {mileageOpts.length === 0 && <p className="text-xs text-gray-500">ไม่พบตัวเลือกระยะเช็ค กรุณาแจ้งเจ้าหน้าที่</p>}
+                                        {mileageNum > 0 && mileageOpts.length > 0 && mileageOpts.every((m) => m.value <= mileageNum) && (
+                                            <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">เลขไมล์เกินทุกระยะเช็คที่มีแล้ว กรุณาแจ้งเจ้าหน้าที่</p>
+                                        )}
+                                        {mileageNum > 0 && mileageOpts.some((m) => m.value <= mileageNum) && mileageOpts.some((m) => m.value > mileageNum) && (
+                                            <p className="text-xs text-gray-500">ระยะเช็คที่น้อยกว่าหรือเท่ากับเลขไมล์ปัจจุบันจะเลือกไม่ได้</p>
+                                        )}
+                                    </div>
                                 </div>
                             )}
 

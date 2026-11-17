@@ -4,13 +4,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { resolvePublicBranch } from '@/lib/queue-public';
-import { findTodayBooking, getTicketView, getTodayQueueDate, normalizePlate } from '@/lib/queue-service';
+import { findTodayBooking, getTicketView, getTodayQueueDate, queuePlate } from '@/lib/queue-service';
 import { ACTIVE_STATUSES } from '@/lib/queue-status';
+import { getMileageOptions, matchCarModelIds } from '@/lib/queue-mileage';
 import { signTicket } from '@/lib/queue-token';
 import { lookupVehicle, maskName, maskPhone } from '@/lib/queue-vehicle';
 import { getClientIp, rateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+
+/** ระยะเช็คเฉพาะรุ่นรถ (null = ไม่รู้รุ่น/จับคู่ไม่ได้ -> ให้ใช้ทุกระยะ) */
+async function modelMileageOptions(carModel: string | null | undefined) {
+    const ids = await matchCarModelIds(carModel);
+    return ids.length ? getMileageOptions({ modelIds: ids }) : null;
+}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ branchCode: string }> }) {
     if (!rateLimit(`lookup:${getClientIp(request)}`, 30, 60_000)) {
@@ -22,7 +29,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const branch = await resolvePublicBranch(branchCode, 'checkin', body?.token);
         if (!branch) return NextResponse.json({ success: false, error: 'QR Code ไม่ถูกต้องหรือหมดอายุ' }, { status: 404 });
 
-        const plate = normalizePlate(String(body?.carRegister ?? ''));
+        const plate = queuePlate(String(body?.carRegister ?? ''));
         if (plate.length < 2 || plate.length > 20) {
             return NextResponse.json({ success: false, error: 'กรุณากรอกทะเบียนรถให้ถูกต้อง' }, { status: 400 });
         }
@@ -54,6 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
                         serviceTypeId: booking.ServiceTypeID,
                         serviceTypeName: booking.ServiceType?.Name ?? null,
                         carModel: booking.CarModel,
+                        projectType: booking.ProjectType || null,
                         customerName: maskName(booking.CustomerName),
                         customerPhone: maskPhone(booking.CustomerPhone),
                     },
@@ -65,9 +73,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         if (vehicle) {
             return NextResponse.json({
                 success: true,
-                data: { kind: 'vehicle', vehicle: { carRegister: plate, carModel: vehicle.carModel, customerName: maskName(vehicle.customerName) } },
+                data: { kind: 'vehicle', vehicle: { carRegister: plate, carModel: vehicle.carModel, customerName: maskName(vehicle.customerName), projectType: vehicle.projectType || null, mileageOptions: await modelMileageOptions(vehicle.carModel) } },
             });
         }
+        // ไม่พบ (หรือเรียก EV7 ไม่สำเร็จ) -> ลูกค้ากรอกข้อมูลเองได้เสมอ ไม่แสดงข้อความแจ้งเตือน
         return NextResponse.json({ success: true, data: { kind: 'new' } });
     } catch (error) {
         console.error('Queue lookup error:', error);
